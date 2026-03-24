@@ -7,6 +7,10 @@ discovered through testing.
 
 This guide will work with or without dual boot.
 
+IMPORTANT NOTE:
+Also, if you are dual boot, you will need to use a physical keyboard and
+mouse until you get Bluetooth sorted out in Step 7.
+
 DISCLAIMER
 
 I did this out of sheer boredom and the desire to share knowledge. While this
@@ -171,6 +175,11 @@ sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
 rEFInd provides a graphical boot menu that auto-detects Linux and Windows
 without manual configuration.
+
+Using rEFInd will give you a graphical boot menu that works with the touch
+screen. This is rather important since you won't be able to use bluetooth
+during boot for the keyboard or mouse otherwise (at least not that I have
+discovered yet).
 
 ### 1. Install rEFInd from Fedora
 
