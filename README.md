@@ -36,7 +36,8 @@ guide. Submit pull requests for recommended changes.
 9. [Fixing Suspend & Wake](#fixing-suspend--wake)
 10. [Display Configuration](#display-configuration)
 11. [Screen Rotation](#screen-rotation)
-12. [File Reference](#file-reference)
+12. [Facial Recognition Login](#facial-recognition-login)
+13. [File Reference](#file-reference)
 
 ---
 
@@ -97,10 +98,10 @@ fixes it. No permanent workaround found yet.
 ## TODO
 
 1. Add tent mode to screen rotation.
-2. Add screen duplication to tent mode (if possible -- nice to have).
+2. Add screen duplication to tent mode (if possible — nice to have).
 3. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
-4. ?????
-5. PROFIT!
+4. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
+5. Secure Boot — MOK enrollment does not persist on Insyde firmware. Needs further investigation.
 
 ---
 
@@ -533,6 +534,149 @@ journalctl --user -u screen-rotate.service -f
 
 ---
 
+## Facial Recognition Login
+
+The Yoga Book 9i has an IR camera (`/dev/video2`) that works with
+[Howdy](https://github.com/boltgolt/howdy) for Windows Hello-style facial
+authentication on login, lock screen, and sudo.
+
+> ⚠️ Howdy is convenient, not highly secure. A photo of your face could
+> potentially unlock it. Always keep password authentication as a fallback.
+
+### The Dependency Problem
+
+Howdy on Fedora 43 requires `python3-dlib` which is not packaged for
+Python 3.14. The `principis/howdy-beta` COPR also fails for the same reason.
+The workaround is to use the `starfish/howdy-beta` COPR which bundles all
+dependencies, and to build `python3-dlib` as a local RPM first.
+
+### 1. Build python3-dlib
+
+Install build dependencies:
+
+```bash
+sudo dnf install -y rpm-build rpmdevtools spectool \
+    boost-devel cmake cmake-rpm-macros pybind11-devel \
+    gcc-c++ gcc-gfortran fftw-devel flexiblas-devel \
+    ffmpeg-free-devel libpng-devel libjpeg-devel \
+    sqlite-devel libX11-devel libjxl-devel \
+    python3-devel pyproject-rpm-macros
+
+rpmdev-setuptree
+```
+
+Create the spec file by copying `dlib.spec` from this repo to `~/rpmbuild/SPECS/dlib.spec`:
+
+```bash
+cp dlib.spec ~/rpmbuild/SPECS/dlib.spec
+```
+
+Download the source and build:
+
+```bash
+spectool -g -R ~/rpmbuild/SPECS/dlib.spec
+rpmbuild -ba ~/rpmbuild/SPECS/dlib.spec
+```
+
+Install the built RPMs:
+
+```bash
+sudo dnf install -y \
+    ~/rpmbuild/RPMS/x86_64/dlib-19.24.6-1.fc43.x86_64.rpm \
+    ~/rpmbuild/RPMS/x86_64/dlib-devel-19.24.6-1.fc43.x86_64.rpm \
+    ~/rpmbuild/RPMS/x86_64/python3-dlib-19.24.6-1.fc43.x86_64.rpm
+```
+
+Verify:
+
+```bash
+python3 -c "import dlib; print(dlib.__version__)"
+```
+
+Note:
+
+The unsigned RPMs are contained in this repo as a reference. These should be useable,
+but I recommend that you roll your own as instructed just in case there are variances
+on your machine (which there shouldn't be).
+
+### 2. Install Howdy
+
+```bash
+sudo dnf copr enable starfish/howdy-beta
+sudo dnf install howdy
+```
+
+### 3. Configure the IR Camera
+
+```bash
+sudo howdy config
+```
+
+Find `device_path` and set it to:
+
+```
+device_path = /dev/video2
+```
+
+### 4. Add Face Models
+
+```bash
+sudo howdy add
+```
+
+Look straight into the top camera. Add multiple models at different
+angles and distances for better reliability:
+
+```bash
+# Add more variants
+sudo howdy add   # slightly left
+sudo howdy add   # slightly right
+sudo howdy add   # further away
+
+# List all models
+sudo howdy list
+
+# Remove a bad model by ID
+sudo howdy remove <id>
+```
+
+### 5. Configure PAM
+
+Add `auth sufficient pam_howdy.so` as the **first line** of each PAM file:
+
+```bash
+# sudo
+sudo nano /etc/pam.d/sudo
+
+# Login screen
+sudo nano /etc/pam.d/sddm
+
+# Lock screen
+sudo nano /etc/pam.d/kde
+sudo nano /etc/pam.d/kscreensaver
+```
+
+Each file should have this as the first line:
+
+```
+auth sufficient pam_howdy.so
+```
+
+### 6. Test
+
+```bash
+# Test face recognition
+sudo howdy test
+
+# Test sudo
+sudo ls
+
+# Test lock screen
+loginctl lock-session
+```
+
+---
+
 ## File Reference
 
 ### Scripts
@@ -542,6 +686,7 @@ journalctl --user -u screen-rotate.service -f
 | `install-packages.sh` | repo root | Install all required packages after base Fedora setup |
 | `btreg.py` | `~/scripts/btreg.py` | Extract Windows BT keys for dual boot sync |
 | `rotate-screens.sh` | `~/scripts/rotate-screens.sh` | Rotate both screens based on accelerometer |
+| `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
 
 ### Systemd Services
 
