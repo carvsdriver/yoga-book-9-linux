@@ -5,23 +5,33 @@ This guide covers a complete Linux setup for the Lenovo Yoga Book 9 14IAH10,
 including installation, bootloader configuration, and all hardware fixes
 discovered through testing.
 
-I put far too much effort into organizing this. I hope it helps someone out.
+This guide will work with or without dual boot.
+
+DISCLAIMER
+
+I did this out of sheer boredom and the desire to share knowledge. While this
+should work, you need to be prepared to handle any oddities or nuances along
+the way. If anything else crops up during daily use, I will update this guide.
+
+Please feel free to open an issue if you find any problems specific to this
+guide. Submit pull requests for recommended changes.
 
 ---
 
 ## Table of Contents
 
 1. [Hardware Overview](#hardware-overview)
-2. [Installing Fedora](#installing-fedora)
-3. [Installing rEFInd](#installing-refind)
-4. [Installing Packages](#installing-packages)
-5. [Bluetooth Dual Boot Sync](#bluetooth-dual-boot-sync) *(optional)*
-6. [Disabling the Touchscreen](#disabling-the-touchscreen)
-7. [Fixing Suspend & Wake](#fixing-suspend--wake)
-8. [Display Configuration](#display-configuration)
-9. [Screen Rotation](#screen-rotation)
-10. [Known Issues](#known-issues)
-11. [File Reference](#file-reference)
+2. [Known Issues](#known-issues)
+3. [TODO](#todo)
+4. [Installing Fedora](#installing-fedora)
+5. [Installing rEFInd](#installing-refind)
+6. [Installing Packages](#installing-packages)
+7. [Bluetooth Dual Boot Sync](#bluetooth-dual-boot-sync) *(optional)*
+8. [Disabling the Touchscreen](#disabling-the-touchscreen)
+9. [Fixing Suspend & Wake](#fixing-suspend--wake)
+10. [Display Configuration](#display-configuration)
+11. [Screen Rotation](#screen-rotation)
+12. [File Reference](#file-reference)
 
 ---
 
@@ -36,6 +46,56 @@ I put far too much effort into organizing this. I hope it helps someone out.
 | Mouse | Yoga Slim Mouse (hardware switch for two device pairing) |
 | Sensors | Dual ISH accelerometers, ambient light sensor |
 | Boot | UEFI, rEFInd → GRUB → kernel |
+
+---
+
+## Known Issues
+
+### Touchscreen (unfixable)
+
+The INGENIC USB HID controller resets its USB connection on every touch event.
+This is a hardware firmware bug with no Linux fix as of March 2026. The
+touchscreen is disabled via udev as a result.
+
+- Tracked at: https://github.com/linuxwacom/libwacom/issues/602
+
+Additionally, this prevents using this as a traditional laptop with the
+keyboard sitting on top of the bottom screen. For now, you'll have to use
+the oragami kickstand.
+
+### Duplicate login screen at boot
+
+SDDM shows the login greeter on both screens simultaneously at boot.
+Once logged in, the correct single-screen layout is restored. This is a
+KWin/SDDM initialization limitation with no clean fix.
+
+### Upside-down Plymouth splash
+
+The Plymouth boot splash shows eDP-1 inverted during early boot before
+KDE applies its display config. Adding `video=eDP-1:2880x1800@120,rotate=180`
+to kernel parameters would fix this but risks interfering with the working
+screen rotation service.
+
+### Occasional freeze on wake
+
+A rare full system freeze can occur shortly after waking from suspend,
+requiring a hard reboot. This is an Intel Lunar Lake power management bug
+affecting several models. It occurs more frequently under high load.
+
+### Bluetooth on wake
+
+Bluetooth occasionally enters a broken state after suspend/wake. A reboot
+fixes it. No permanent workaround found yet.
+
+---
+
+## TODO
+
+1. Add tent mode to screen rotation.
+2. Add screen duplication to tent mode (if possible -- nice to have).
+3. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
+4. ?????
+5. PROFIT!
 
 ---
 
@@ -460,42 +520,6 @@ systemctl --user start screen-rotate.service
 systemctl --user status screen-rotate.service
 journalctl --user -u screen-rotate.service -f
 ```
-
----
-
-## Known Issues
-
-### Touchscreen (unfixable)
-
-The INGENIC USB HID controller resets its USB connection on every touch event.
-This is a hardware firmware bug with no Linux fix as of March 2026. The
-touchscreen is disabled via udev as a result.
-
-- Tracked at: https://github.com/linuxwacom/libwacom/issues/602
-
-### Duplicate login screen at boot
-
-SDDM shows the login greeter on both screens simultaneously at boot.
-Once logged in, the correct single-screen layout is restored. This is a
-KWin/SDDM initialization limitation with no clean fix.
-
-### Upside-down Plymouth splash
-
-The Plymouth boot splash shows eDP-1 inverted during early boot before
-KDE applies its display config. Adding `video=eDP-1:2880x1800@120,rotate=180`
-to kernel parameters would fix this but risks interfering with the working
-screen rotation service.
-
-### Occasional freeze on wake
-
-A rare full system freeze can occur shortly after waking from suspend,
-requiring a hard reboot. This is an Intel Lunar Lake power management bug
-affecting several models. It occurs more frequently under high load.
-
-### Bluetooth on wake
-
-Bluetooth occasionally enters a broken state after suspend/wake. A reboot
-fixes it. No permanent workaround found yet.
 
 ---
 
