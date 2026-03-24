@@ -25,19 +25,19 @@ guide. Submit pull requests for recommended changes.
 
 ## Table of Contents
 
-1. [Hardware Overview](#hardware-overview)
-2. [Known Issues](#known-issues)
-3. [TODO](#todo)
-4. [Installing Fedora](#installing-fedora)
-5. [Installing rEFInd](#installing-refind)
-6. [Installing Packages](#installing-packages)
-7. [Bluetooth Dual Boot Sync](#bluetooth-dual-boot-sync) *(optional)*
-8. [Disabling the Touchscreen](#disabling-the-touchscreen)
-9. [Fixing Suspend & Wake](#fixing-suspend--wake)
-10. [Display Configuration](#display-configuration)
-11. [Screen Rotation](#screen-rotation)
-12. [Facial Recognition Login](#facial-recognition-login)
-13. [File Reference](#file-reference)
+1. [Hardware Overview](#markdown-header-hardware-overview)
+2. [Known Issues](#markdown-header-known-issues)
+3. [TODO](#markdown-header-todo)
+4. [Installing Fedora](#markdown-header-installing-fedora)
+5. [Installing rEFInd](#markdown-header-installing-refind)
+6. [Installing Packages](#markdown-header-installing-packages)
+7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
+8. [Disabling the Touchscreen](#markdown-header-disabling-the-touchscreen)
+9. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
+10. [Display Configuration](#markdown-header-display-configuration)
+11. [Screen Rotation](#markdown-header-screen-rotation)
+12. [Facial Recognition Login](#markdown-header-facial-recognition-login)
+13. [File Reference](#markdown-header-file-reference)
 
 ---
 
