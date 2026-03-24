@@ -8,7 +8,8 @@ discovered through testing.
 This guide will work with or without dual boot.
 
 IMPORTANT NOTE:
-Also, if you are dual boot, you will need to use a physical keyboard and
+
+If you are dual boot, you will need to use a physical keyboard and
 mouse until you get Bluetooth sorted out in Step 7.
 
 DISCLAIMER
