@@ -101,7 +101,7 @@ fixes it. No permanent workaround found yet.
 2. Add screen duplication to tent mode (if possible — nice to have).
 3. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
 4. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
-5. Secure Boot — MOK enrollment does not persist on Insyde firmware. Needs further investigation.
+5. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
 
 ---
 
