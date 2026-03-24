@@ -1,0 +1,13 @@
+[Unit]
+Description=Dual screen rotation for Yoga Book 9i
+After=plasma-kwin_wayland.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/scripts/rotate-screens.sh
+Restart=always
+RestartSec=3
+PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR DISPLAY DBUS_SESSION_BUS_ADDRESS
+
+[Install]
+WantedBy=graphical-session.target
