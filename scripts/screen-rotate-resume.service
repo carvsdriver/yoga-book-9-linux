@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart screen rotation after suspend
+After=suspend.target
+
+[Service]
+Type=oneshot
+ExecStart=systemctl restart screen-rotate.service
+
+[Install]
+WantedBy=suspend.target

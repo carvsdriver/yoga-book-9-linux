@@ -494,8 +494,9 @@ portrait (side by side) orientations.
 
 - A custom shell script polls the raw accelerometer values from `iio:device1`
 - The script calls `kscreen-doctor` to rotate and reposition both displays
-- A systemd **system** service runs the script automatically at boot and
-  restarts it after suspend/resume
+- A systemd system service runs the script automatically at boot
+- A second systemd system service restarts the rotation service after every
+  suspend/resume cycle to clear stale state and let KWin settle
 - The script retries `kscreen-doctor` up to 5 times on failure to handle
   KWin settling after resume
 
@@ -508,20 +509,36 @@ sudo cp rotate-screens.sh /usr/local/bin/rotate-screens.sh
 sudo chmod 755 /usr/local/bin/rotate-screens.sh
 ```
 
-2. Copy `screen-rotate.service` to `/etc/systemd/system/`:
+2. Copy both service files to `/etc/systemd/system/`:
 
 ```bash
 sudo cp screen-rotate.service /etc/systemd/system/screen-rotate.service
+sudo cp screen-rotate-resume.service /etc/systemd/system/screen-rotate-resume.service
 ```
 
-3. Enable and start:
+3. Edit the rotation service file and update the `User` field and `XDG_RUNTIME_DIR`
+   to match your username:
+
+```bash
+sudo nano /etc/systemd/system/screen-rotate.service
+```
+
+> **Note:** This service runs as a specific user because `kscreen-doctor`
+> needs access to that user's Wayland session. If multiple users need screen
+> rotation, a separate service instance is required for each — copy the
+> service file with a different name, update the `User` and
+> `XDG_RUNTIME_DIR` fields accordingly, and enable each instance
+> separately.
+
+4. Enable and start both services:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now screen-rotate.service
+sudo systemctl enable --now screen-rotate-resume.service
 ```
 
-4. In **System Settings → Display & Monitor**, disable **Auto-rotate** for both
+5. In **System Settings → Display & Monitor**, disable **Auto-rotate** for both
    screens (the service handles rotation instead)
 
 ### Rotation Mapping
@@ -700,7 +717,8 @@ loginctl lock-session
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `screen-rotate.service` | `/etc/systemd/system/screen-rotate.service` | System service — runs rotation script at boot, restarts after suspend |
+| `screen-rotate.service` | `/etc/systemd/system/screen-rotate.service` | Runs rotation script at boot |
+| `screen-rotate-resume.service` | `/etc/systemd/system/screen-rotate-resume.service` | Restarts rotation service after suspend/resume |
 
 ### udev Rules
 
