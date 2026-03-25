@@ -486,34 +486,42 @@ sudo systemctl restart iio-sensor-proxy
 ## Screen Rotation
 
 Both screens rotate together in landscape and portrait modes based on the
-bottom screen's accelerometer (iio:device0).
+bottom screen's accelerometer. Screen positions are also updated so the
+displays are correctly arranged in both landscape (stacked vertically) and
+portrait (side by side) orientations.
 
 ### How it works
 
-- `iio-sensor-proxy` reads the accelerometer and exposes orientation via DBus
-- A custom shell script polls the raw accelerometer values directly
-- The script calls `kscreen-doctor` to rotate both displays simultaneously
-- A systemd user service runs the script automatically at login
+- A custom shell script polls the raw accelerometer values from `iio:device1`
+- The script calls `kscreen-doctor` to rotate and reposition both displays
+- A systemd **system** service runs the script automatically at boot and
+  restarts it after suspend/resume
+- The script retries `kscreen-doctor` up to 5 times on failure to handle
+  KWin settling after resume
 
 ### Install
 
-1. Save `rotate-screens.sh` to `~/scripts/rotate-screens.sh`
+1. Copy `rotate-screens.sh` to `/usr/local/bin/` and make it executable:
 
-2. Make it executable:
 ```bash
-chmod +x ~/scripts/rotate-screens.sh
+sudo cp rotate-screens.sh /usr/local/bin/rotate-screens.sh
+sudo chmod 755 /usr/local/bin/rotate-screens.sh
 ```
 
-3. Save `screen-rotate.service` to `~/.config/systemd/user/screen-rotate.service`
+2. Copy `screen-rotate.service` to `/etc/systemd/system/`:
 
-4. Enable and start:
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable screen-rotate.service
-systemctl --user start screen-rotate.service
+sudo cp screen-rotate.service /etc/systemd/system/screen-rotate.service
 ```
 
-5. In **System Settings → Display & Monitor**, disable **Auto-rotate** for both
+3. Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now screen-rotate.service
+```
+
+4. In **System Settings → Display & Monitor**, disable **Auto-rotate** for both
    screens (the service handles rotation instead)
 
 ### Rotation Mapping
@@ -528,8 +536,8 @@ systemctl --user start screen-rotate.service
 ### Verify
 
 ```bash
-systemctl --user status screen-rotate.service
-journalctl --user -u screen-rotate.service -f
+sudo systemctl status screen-rotate.service
+journalctl -u screen-rotate.service -f
 ```
 
 ---
@@ -685,14 +693,14 @@ loginctl lock-session
 |------|----------|---------|
 | `install-packages.sh` | repo root | Install all required packages after base Fedora setup |
 | `btreg.py` | `~/scripts/btreg.py` | Extract Windows BT keys for dual boot sync |
-| `rotate-screens.sh` | `~/scripts/rotate-screens.sh` | Rotate both screens based on accelerometer |
+| `rotate-screens.sh` | `/usr/local/bin/rotate-screens.sh` | Rotate both screens based on accelerometer |
 | `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
 
 ### Systemd Services
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `screen-rotate.service` | `~/.config/systemd/user/screen-rotate.service` | Run rotation script at login |
+| `screen-rotate.service` | `/etc/systemd/system/screen-rotate.service` | System service — runs rotation script at boot, restarts after suspend |
 
 ### udev Rules
 
