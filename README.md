@@ -57,6 +57,8 @@ guide. Submit pull requests for recommended changes.
 
 ## Known Issues
 
+[![Open Issues](https://img.shields.io/bitbucket/issues/carvsdriver/lenovoyoga9ibook.svg)](https://bitbucket.org/carvsdriver/lenovoyoga9ibook/issues)
+
 ### Touchscreen (unfixable)
 
 The INGENIC USB HID controller resets its USB connection on every touch event.
