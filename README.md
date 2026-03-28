@@ -97,11 +97,9 @@ fixes it. No permanent workaround found yet.
 
 ## TODO
 
-1. Add tent mode to screen rotation.
-2. Add screen duplication to tent mode (if possible — nice to have).
-3. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
-4. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
-5. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
+1. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
+2. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
+3. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
 
 ---
 
@@ -492,8 +490,10 @@ portrait (side by side) orientations.
 
 ### How it works
 
-- A custom shell script polls the raw accelerometer values from `iio:device1`
-- The script calls `kscreen-doctor` to rotate and reposition both displays
+- A custom shell script polls the raw accelerometer values from both ISH accelerometers
+- Tent mode is detected by comparing the Y axis sign of both accelerometers — in tent mode they read opposite signs
+- In tent mode both screens mirror at the same position showing identical content
+- In all other modes the script calls `kscreen-doctor` to rotate and reposition both displays
 - A systemd system service runs the script automatically at boot
 - A second systemd system service restarts the rotation service after every
   suspend/resume cycle to clear stale state and let KWin settle
@@ -543,12 +543,13 @@ sudo systemctl enable --now screen-rotate-resume.service
 
 ### Rotation Mapping
 
-| Physical orientation | eDP-1 (top) | eDP-2 (bottom) |
-|---------------------|-------------|----------------|
-| Landscape (normal) | inverted | none |
-| Landscape (upside down) | none | inverted |
-| Portrait (right) | left | right |
-| Portrait (left) | right | left |
+| Physical orientation | eDP-1 (top) | eDP-2 (bottom) | Position |
+|---------------------|-------------|----------------|----------|
+| Landscape (normal) | inverted | none | stacked vertically |
+| Landscape (upside down) | none | inverted | stacked vertically |
+| Portrait (right) | left | right | side by side |
+| Portrait (left) | right | left | side by side |
+| Tent mode | none | none | mirrored at 0,0 |
 
 ### Verify
 
@@ -618,11 +619,9 @@ Verify:
 python3 -c "import dlib; print(dlib.__version__)"
 ```
 
-Note:
-
-The unsigned RPMs are contained in this repo as a reference. These should be useable,
-but I recommend that you roll your own as instructed just in case there are variances
-on your machine (which there shouldn't be).
+> **Note:** The unsigned RPMs are contained in this repo as a reference. These should be useable,
+> but I recommend that you roll your own as instructed just in case there are variances
+> on your machine (which there shouldn't be).
 
 ### 2. Install Howdy
 
