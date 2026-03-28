@@ -37,7 +37,8 @@ guide. Submit pull requests for recommended changes.
 10. [Display Configuration](#markdown-header-display-configuration)
 11. [Screen Rotation](#markdown-header-screen-rotation)
 12. [Facial Recognition Login](#markdown-header-facial-recognition-login)
-13. [File Reference](#markdown-header-file-reference)
+13. [Cleanup](#markdown-header-cleanup)
+14. [File Reference](#markdown-header-file-reference)
 
 ---
 
@@ -703,6 +704,29 @@ loginctl lock-session
 
 ---
 
+## Cleanup
+
+After completing the facial recognition setup, remove the build tools and
+artifacts used to compile `python3-dlib`. A convenience script is included
+in the repo to do this in one step:
+
+```bash
+chmod +x RPMCleanup.sh
+./RPMCleanup.sh
+```
+
+This removes all build dependencies (~500 MiB), cleans up the RPM build
+directories, and purges the pip cache. The built RPMs and spec file are
+kept so you can reinstall `python3-dlib` without a full rebuild if needed.
+
+> **Note:** The RPMs at `~/rpmbuild/RPMS/x86_64/` are kept intentionally.
+> To reinstall without rebuilding:
+> ```bash
+> sudo dnf install ~/rpmbuild/RPMS/x86_64/python3-dlib-*.rpm
+> ```
+
+---
+
 ## File Reference
 
 ### Scripts
@@ -713,6 +737,7 @@ loginctl lock-session
 | `btreg.py` | `~/scripts/btreg.py` | Extract Windows BT keys for dual boot sync |
 | `rotate-screens.sh` | `/usr/local/bin/rotate-screens.sh` | Rotate both screens based on accelerometer |
 | `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
+| `RPMCleanup.sh` | repo root | Remove build dependencies after howdy setup |
 
 ### Systemd Services
 
