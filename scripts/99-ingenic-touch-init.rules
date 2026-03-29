@@ -1,0 +1,31 @@
+# /etc/udev/rules.d/99-ingenic-touch-init.rules
+#
+# Send HID Output report to INGENIC 17EF:6161 touchscreen on Lenovo Yoga Book 9
+# (83KJ) after USB enumeration to prevent firmware self-reset.
+#
+# Why ENV{} instead of ATTRS{idVendor}/ATTRS{idProduct}:
+# ATTRS{} walks the sysfs ancestor chain independently for each key. Since
+# idVendor/idProduct exist on both the USB device (depth 2) AND the USB hub
+# (depth 3), udev can match them against different ancestors and the combined
+# condition fails silently. ENV{ID_VENDOR_ID} and ENV{ID_MODEL_ID} are set
+# unambiguously by the usb_id builtin in 60-persistent-hidraw.rules which
+# runs before this file.
+#
+# ATTRS{bInterfaceNumber} is safe to use alone because it only exists at
+# exactly one ancestor level (the USB interface, depth 1).
+#
+# Install:
+#   sudo cp ingenic-touch-init.py /usr/local/sbin/
+#   sudo chmod +x /usr/local/sbin/ingenic-touch-init.py
+#   sudo cp 99-ingenic-touch-init.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#
+# Test without reboot:
+#   sudo udevadm trigger --verbose --action=add --subsystem-match=hidraw
+#   sudo journalctl -b | grep ingenic-touch-init
+
+SUBSYSTEM=="hidraw", \
+    ENV{ID_VENDOR_ID}=="17ef", \
+    ENV{ID_MODEL_ID}=="6161", \
+    ATTRS{bInterfaceNumber}=="02", \
+    RUN+="/usr/local/sbin/ingenic-touch-init.py %N"
