@@ -279,12 +279,21 @@ devices store Windows' key and Linux will accept it, but not vice versa.
 sudo dnf install hivex python3-hivex
 ```
 
+### Mouse Pairing
+
+1. **Boot into Windows** pair the mouse and note the position of the switch.
+2. **Boot into Linux** change the switch to the opposite position and pair the mouse.
+
 ### Pairing Order
 
-1. **Pair the keyboard in Windows first**
-2. **Boot into Linux** and pair the keyboard there too
-3. **Run the extraction script** (below) to copy Windows' key into Linux
-4. **Restart Bluetooth** — the keyboard should connect without re-pairing
+1. **Remove Pairing From Windows**
+2. **Boot into Linux** and pair the keyboard there.
+3. **Boot into Windows** and pair the keyboard there.
+4. **Boot into Linux** keyboard will no longer be paried. Do **not** remove the broken pairing yet.
+3. **Run the extraction script** (below) to copy Windows' key into Linux.
+4. **Restart Bluetooth** — the keyboard should connect without re-pairing.
+
+The only thing you'll have to do between reboots is flip the switch under the mouse.
 
 ### The Script
 
@@ -308,8 +317,10 @@ For each device shown in the output, edit its Linux info file:
 sudo nano /var/lib/bluetooth/<adapter-mac>/<device-mac>/info
 ```
 
-Update the `[LongTermKey]` section with the values from the script output,
-then restart Bluetooth:
+Update the `[LongTermKey]` or `[PeripheralLongTermKey]` section with the values
+from the script output. Do not change the key value in any other sections.
+
+Restart Bluetooth:
 
 ```bash
 sudo systemctl restart bluetooth
@@ -332,6 +343,12 @@ sudo nano /var/lib/bluetooth/<adapter>/<windows-mac>/info
 sudo rm -rf /var/lib/bluetooth/<adapter>/<linux-mac>
 
 sudo systemctl restart bluetooth
+```
+
+You may have to run the above fully logged into a shell as sudo:
+
+```bash
+sudo -i
 ```
 
 ---
