@@ -32,7 +32,7 @@ guide. Submit pull requests for recommended changes.
 5. [Installing rEFInd](#markdown-header-installing-refind)
 6. [Installing Packages](#markdown-header-installing-packages)
 7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-8. [Disabling the Touchscreen](#markdown-header-disabling-the-touchscreen)
+8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen)
 9. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
 10. [Display Configuration](#markdown-header-display-configuration)
 11. [Screen Rotation](#markdown-header-screen-rotation)
@@ -60,17 +60,11 @@ guide. Submit pull requests for recommended changes.
 
 [![Open Issues](https://img.shields.io/bitbucket/issues/carvsdriver/lenovoyoga9ibook.svg)](https://bitbucket.org/carvsdriver/lenovoyoga9ibook/issues)
 
-### Touchscreen (unfixable)
+### Bluetooth power-off at KDE session start
 
-The INGENIC USB HID controller resets its USB connection on every touch event.
-This is a hardware firmware bug with no Linux fix as of March 2026. The
-touchscreen is disabled via udev as a result.
-
-- Tracked at: https://github.com/linuxwacom/libwacom/issues/602
-
-Additionally, this prevents using this as a traditional laptop with the
-keyboard sitting on top of the bottom screen. For now, you'll have to use
-the oragami kickstand.
+`kdeconnectd` powers down the Bluetooth adapter approximately 30 seconds
+after login. Re-enabling Bluetooth from the system tray restores full
+function. No permanent fix found yet — under investigation.
 
 ### Duplicate login screen at boot
 
@@ -100,9 +94,9 @@ fixes it. No permanent workaround found yet.
 
 ## TODO
 
-1. Attempt to add touch to bottom screen to enable laptop mode with keyboard docked.
-2. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
-3. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
+1. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
+2. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
+3. Bluetooth power-off by `kdeconnectd` at session start — permanent fix under investigation.
 
 ---
 
@@ -353,31 +347,61 @@ sudo -i
 
 ---
 
-## Disabling the Touchscreen
+## Enabling the Touchscreen
 
-The INGENIC USB HID touch controller (17EF:6161) has a firmware bug on Linux
-that causes the entire USB device to disconnect and reconnect on every touch
-event, making touch unusable. There is no known fix as of March 2026.
+Touch works on both displays after fixing two separate bugs. Full technical
+details, background, and the USBPcap investigation are in
+[README_Touch.md](README_Touch.md).
 
-### Disable via udev
+### Bug 1: USB Reset Loop
 
-```bash
-sudo nano /etc/udev/rules.d/99-disable-touch.rules
-```
-
-```
-# Disable Yoga Book 9i touchscreens and emulated touchpad
-ATTRS{name}=="INGENIC Gadget Serial and keyboard Touchscreen Top", ENV{LIBINPUT_IGNORE_DEVICE}="1"
-ATTRS{name}=="INGENIC Gadget Serial and keyboard Touchscreen Bottom", ENV{LIBINPUT_IGNORE_DEVICE}="1"
-ATTRS{name}=="INGENIC Gadget Serial and keyboard Emulated Touchpad", ENV{LIBINPUT_IGNORE_DEVICE}="1"
-```
+The INGENIC controller resets unless it receives a specific 7-byte HID Output
+report within ~1.18s of enumeration. Fixed with a udev rule and Python script.
 
 ```bash
+sudo cp scripts/ingenic-touch-init.py /usr/local/sbin/
+sudo chmod +x /usr/local/sbin/ingenic-touch-init.py
+sudo cp scripts/99-ingenic-touch-init.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
-sudo udevadm trigger
 ```
 
-Log out and back in to apply.
+### Bug 2: Touch Misclassified as Clickpad
+
+`hid-multitouch` incorrectly sets `INPUT_PROP_BUTTONPAD` due to three firmware
+quirks in the descriptor. Fixed with a kernel patch that skips the incorrect
+heuristics for `MT_QUIRK_YOGABOOK9I` devices.
+
+Build and install the patched module (see README_Touch.md for full steps):
+
+```bash
+cd ~/kernel-src
+patch -p3 < ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
+make
+sudo zstd -19 hid-multitouch.ko \
+    -o /lib/modules/$(uname -r)/kernel/drivers/hid/hid-multitouch.ko.zst
+sudo rm -f /lib/modules/$(uname -r)/kernel/drivers/hid/hid-multitouch.ko.xz
+sudo depmod
+```
+
+### Touch-to-Display Mapping
+
+Copy the KWin touch mapping to your config and log out/in:
+
+```bash
+cp scripts/kcminputrc ~/.config/kcminputrc
+```
+
+### Verify
+
+```bash
+# Props should be 2 (INPUT_PROP_DIRECT) on both touchscreens
+for d in /sys/class/input/event*/device/name; do
+    name=$(cat $d 2>/dev/null)
+    echo "$name" | grep -q "Touchscreen" || continue
+    event=$(echo $d | sed 's|/sys/class/input/\(event[0-9]*\)/.*|\1|')
+    echo "$event ($(cat /sys/class/input/$event/device/properties)): $name"
+done
+```
 
 ---
 
@@ -755,6 +779,7 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `rotate-screens.sh` | `/usr/local/bin/rotate-screens.sh` | Rotate both screens based on accelerometer |
 | `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
 | `RPMCleanup.sh` | repo root | Remove build dependencies after howdy setup |
+| `scripts/ingenic-touch-init.py` | `/usr/local/sbin/ingenic-touch-init.py` | Send USB init report to INGENIC controller at enumeration |
 
 ### Systemd Services
 
@@ -767,9 +792,16 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `/etc/udev/rules.d/99-disable-touch.rules` | Disable INGENIC touchscreen |
+| `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | Send init report to INGENIC controller on hidraw enumeration |
 | `/etc/udev/rules.d/99-wakeup-disable.rules` | Disable XHCI/INGENIC wakeup sources |
 | `/etc/udev/hwdb.d/61-sensor-yogabook9.hwdb` | Accelerometer mount matrix |
+
+### Kernel Patch
+
+| File | Purpose |
+|------|---------|
+| `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch` | Fix `INPUT_PROP_BUTTONPAD` incorrectly set on touchscreen inputs |
+| `scripts/hid-multitouch.c` | Patched source for reference / rebuild |
 
 ### Configuration Files
 
@@ -779,3 +811,4 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `/etc/sddm.conf.d/display.conf` | SDDM Wayland display config |
 | `/var/lib/sddm/.local/share/kscreen/` | SDDM screen layout |
 | `~/.local/share/kscreen/` | KDE screen layout |
+| `scripts/kcminputrc` → `~/.config/kcminputrc` | Touch-to-display output mapping for KWin |
