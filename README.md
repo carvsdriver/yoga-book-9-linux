@@ -32,7 +32,7 @@ guide. Submit pull requests for recommended changes.
 5. [Installing rEFInd](#markdown-header-installing-refind)
 6. [Installing Packages](#markdown-header-installing-packages)
 7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen)
+8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 3 (OSK freeze)
 9. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
 10. [Display Configuration](#markdown-header-display-configuration)
 11. [Screen Rotation](#markdown-header-screen-rotation)
@@ -349,14 +349,16 @@ sudo -i
 
 ## Enabling the Touchscreen
 
-Touch works on both displays after fixing two separate bugs. Full technical
+Touch works on both displays after fixing three separate bugs. Full technical
 details, background, and the USBPcap investigation are in
 [README_Touch.md](README_Touch.md).
 
 ### Bug 1: USB Reset Loop
 
 The INGENIC controller resets unless it receives a specific 7-byte HID Output
-report within ~1.18s of enumeration. Fixed with a udev rule and Python script.
+report within ~1.18s of enumeration. The kernel patch (Bug 2) now sends this
+report automatically from `mt_probe`. The udev rule and Python script below
+remain as a belt-and-suspenders fallback:
 
 ```bash
 sudo cp scripts/ingenic-touch-init.py /usr/local/sbin/
@@ -368,19 +370,93 @@ sudo udevadm control --reload-rules
 ### Bug 2: Touch Misclassified as Clickpad
 
 `hid-multitouch` incorrectly sets `INPUT_PROP_BUTTONPAD` due to three firmware
-quirks in the descriptor. Fixed with a kernel patch that skips the incorrect
-heuristics for `MT_QUIRK_YOGABOOK9I` devices.
+quirks in the descriptor. Fixed with a kernel patch that adds `MT_QUIRK_YOGABOOK9I`
+and skips the incorrect heuristics. The patch also adds the USB reset loop fix
+described in Bug 1.
 
-Build and install the patched module (see README_Touch.md for full steps):
+#### Getting the Kernel Source
+
+```bash
+# 1. Install build requirements
+sudo dnf install kernel-devel-$(uname -r) rpm-build
+
+# 2. Download the source RPM for the running kernel
+sudo dnf download --source kernel-$(uname -r | sed 's/\.[^.]*$//')
+
+# 3. Extract the kernel source tarball
+rpm2cpio kernel-*.src.rpm | cpio -idmv '*.tar.xz'
+
+# 4. Set up the build directory
+mkdir -p ~/kernel-src
+cd ~/kernel-src
+
+# 5. Extract only the two files needed for out-of-tree build
+KVER=$(ls ../linux-*.tar.xz | grep -oP 'linux-\K[0-9.]+(?=\.tar)')
+tar xf ../linux-${KVER}.tar.xz --strip-components=3 \
+    linux-${KVER}/drivers/hid/hid-multitouch.c \
+    linux-${KVER}/drivers/hid/hid-ids.h
+
+# 6. Create the out-of-tree module Makefile
+echo 'obj-m := hid-multitouch.o' > Makefile
+```
+
+#### Apply the Patch and Build
 
 ```bash
 cd ~/kernel-src
-patch -p3 < ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
-make
-sudo zstd -19 hid-multitouch.ko \
-    -o /lib/modules/$(uname -r)/kernel/drivers/hid/hid-multitouch.ko.zst
-sudo rm -f /lib/modules/$(uname -r)/kernel/drivers/hid/hid-multitouch.ko.xz
-sudo depmod
+cp ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch .
+patch -p1 < 0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
+
+make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules
+
+# Install
+zstd -f -19 hid-multitouch.ko -o hid-multitouch.ko.zst
+sudo cp hid-multitouch.ko.zst \
+    /lib/modules/$(uname -r)/kernel/drivers/hid/hid-multitouch.ko.zst
+sudo depmod -a
+```
+
+Reload the module without rebooting:
+
+```bash
+sudo rmmod hid_multitouch && sudo modprobe hid_multitouch
+```
+
+Or reboot.
+
+#### Alternative: HID-BPF Descriptor Fixup
+
+A HID-BPF program is available as a lighter-weight alternative that patches
+the report descriptor at runtime without replacing the kernel module. See
+[README_Touch.md](README_Touch.md) for full build and deployment instructions.
+
+```bash
+# Quick deploy after building (see README_Touch.md for build steps)
+sudo udev-hid-bpf install \
+    ~/kernel-src/bpf/0010-INGENIC__Gadget-touchscreen.bpf.o
+```
+
+### Bug 3: Emulated Touchpad Causes On-Screen Keyboard Freezes
+
+The INGENIC composite device exposes a `HID_DG_TOUCHPAD` collection alongside
+the two touchscreens. `hid-multitouch` creates a separate input node for it
+("Emulated Touchpad") which libinput sees as a pointer device. Every finger tap
+fires both a touchscreen event and a duplicate mouse-click event from the
+emulated touchpad, stealing focus from the on-screen keyboard.
+
+Fixed with a udev rule that tells libinput to ignore the emulated touchpad node:
+
+```bash
+sudo cp scripts/91-ingenic-emulated-touchpad.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=input --action=add
+```
+
+Verify:
+
+```bash
+sudo libinput list-devices | grep -A4 "Emulated Touchpad"
+# Should not appear — libinput ignores it after the rule takes effect
 ```
 
 ### Touch-to-Display Mapping
@@ -793,6 +869,8 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | File | Purpose |
 |------|---------|
 | `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | Send init report to INGENIC controller on hidraw enumeration |
+| `scripts/90-ingenic-touch-calibration.rules` → `/etc/udev/rules.d/` | 180° calibration matrix for top (eDP-1) touchscreen |
+| `scripts/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/` | Hide emulated touchpad from libinput (fixes OSK freeze) |
 | `/etc/udev/rules.d/99-wakeup-disable.rules` | Disable XHCI/INGENIC wakeup sources |
 | `/etc/udev/hwdb.d/61-sensor-yogabook9.hwdb` | Accelerometer mount matrix |
 
@@ -800,8 +878,14 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch` | Fix `INPUT_PROP_BUTTONPAD` incorrectly set on touchscreen inputs |
+| `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch` | Fix `INPUT_PROP_BUTTONPAD` and USB reset loop for INGENIC touchscreen |
 | `scripts/hid-multitouch.c` | Patched source for reference / rebuild |
+
+### HID-BPF (Alternative to Kernel Patch)
+
+| File | Purpose |
+|------|---------|
+| `scripts/0010-INGENIC__Gadget-touchscreen.bpf.c` | BPF descriptor fixup — patches `BTN_LEFT` offsets at runtime without replacing the kernel module |
 
 ### Configuration Files
 
