@@ -9,6 +9,7 @@ See README.md for full background and install instructions.
 
 import sys
 import os
+import re
 import glob
 import time
 import logging
@@ -33,7 +34,23 @@ PRODUCT_ID = "6161"
 # Source: Windows USBPcap trace, packet 33, bReq=0x20, wLength=7.
 INIT_REPORT = bytes([0x00, 0xc2, 0x01, 0x00, 0x00, 0x00, 0x00])
 
-SETTLE_DELAY = 0.5
+SETTLE_DELAY = 0.0
+
+# Lock directory: one flag file per HID device instance.
+# Prevents sending the init packet twice to the same device instance,
+# which would cause a firmware reset.  /run is tmpfs; cleared on reboot.
+#
+# Lock key is the HID device instance ID (e.g. "0003_17EF_6161_04DE"),
+# NOT busnum_devnum.  USB devnums wrap at 127 per bus; within a single
+# boot session the kernel's global HID IDR counter (16-bit, FFFF slots)
+# effectively never wraps, eliminating stale-lock cascades.
+LOCK_DIR = "/run/ingenic-touch-init"
+
+# Regex matching the HID device ID component in a sysfs DEVPATH.
+# Example: /devices/.../0003:17EF:6161.04DE/hidraw/hidraw4
+_HID_ID_RE = re.compile(
+    r"/([0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4})/"
+)
 
 
 def sysfs_read(path):
@@ -42,6 +59,74 @@ def sysfs_read(path):
             return f.read().strip()
     except OSError:
         return None
+
+
+def get_hid_instance_key(dev_path):
+    """
+    Return the HID device instance ID as the lock key, e.g.
+    "0003_17EF_6161_04DE".  Reads the sysfs symlink for dev_path.
+    Returns None if sysfs is inaccessible (e.g. during REMOVE cleanup).
+    """
+    node = os.path.basename(dev_path)           # e.g. "hidraw4"
+    hidraw_dir = os.path.join("/sys/class/hidraw", node)
+    dev_link = os.path.join(hidraw_dir, "device")
+    try:
+        hid_dir = os.path.realpath(dev_link)        # e.g. ".../0003:17EF:6161.04DE"
+        hid_id = os.path.basename(hid_dir)          # "0003:17EF:6161.04DE"
+        return hid_id.replace(":", "_").replace(".", "_")
+    except OSError:
+        return None
+
+
+def get_hid_instance_key_from_devpath(devpath):
+    """
+    Extract HID instance key from a sysfs DEVPATH string.
+    Used during REMOVE when the sysfs symlink may already be gone.
+    Returns None if the DEVPATH doesn't contain a recognisable HID ID.
+    """
+    m = _HID_ID_RE.search(devpath)
+    if m:
+        return m.group(1).replace(":", "_").replace(".", "_")
+    return None
+
+
+def acquire_init_lock(dev_path):
+    """
+    Atomically create a lock file for this HID device instance.
+    Returns True if we are the first (should send init), False if already done.
+    Uses O_CREAT|O_EXCL for atomicity — no TOCTOU race between processes.
+    """
+    key = get_hid_instance_key(dev_path)
+    if key is None:
+        log.warning("Cannot determine HID instance key; proceeding without lock.")
+        return True
+    os.makedirs(LOCK_DIR, exist_ok=True)
+    lock_path = os.path.join(LOCK_DIR, key)
+    log.info("Lock key: %s", key)
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return True   # we created it — we are first
+    except FileExistsError:
+        log.info("Lock file exists — already initialised %s.", key)
+        return False  # someone else got there first
+
+
+def release_init_lock(devpath):
+    """
+    Remove the lock file for the device identified by sysfs DEVPATH.
+    Called on REMOVE so the lock slot is freed before the HID IDR wraps.
+    """
+    key = get_hid_instance_key_from_devpath(devpath)
+    if key is None:
+        log.warning("Cannot extract HID instance key from DEVPATH: %s", devpath)
+        return
+    lock_path = os.path.join(LOCK_DIR, key)
+    try:
+        os.remove(lock_path)
+        log.info("Released lock %s", key)
+    except FileNotFoundError:
+        pass  # already gone or never created (other interface's REMOVE)
 
 
 def find_hidraw_node():
@@ -63,14 +148,14 @@ def find_hidraw_node():
             continue
 
         usb_iface_dir = os.path.dirname(hid_dir)
-        usb_dev_dir   = os.path.dirname(usb_iface_dir)
+        usb_dev_dir = os.path.dirname(usb_iface_dir)
 
         iface_num = sysfs_read(os.path.join(usb_iface_dir, "bInterfaceNumber"))
-        vid       = sysfs_read(os.path.join(usb_dev_dir,   "idVendor"))
-        pid       = sysfs_read(os.path.join(usb_dev_dir,   "idProduct"))
+        vid = sysfs_read(os.path.join(usb_dev_dir, "idVendor"))
+        pid = sysfs_read(os.path.join(usb_dev_dir, "idProduct"))
 
         if vid == VENDOR_ID and pid == PRODUCT_ID and iface_num is not None:
-            node     = os.path.basename(hidraw_dir)
+            node = os.path.basename(hidraw_dir)
             dev_path = os.path.join("/dev", node)
             candidates.append((int(iface_num, 16), dev_path))
 
@@ -96,7 +181,7 @@ def send_init(dev_path):
         written = os.write(fd, INIT_REPORT)
         if written != len(INIT_REPORT):
             log.error("Short write: %d of %d bytes", written, len(INIT_REPORT))
-            return False
+            return Falsehttps://www.youtube.com/@stevemorrisracing
         log.info("Init report sent (%d bytes) — done.", written)
         return True
     except OSError as e:
@@ -116,6 +201,14 @@ def wait_for_node(dev_path, timeout=5.0, interval=0.1):
 
 
 def main():
+    # --remove mode: called by udev REMOVE rule to release the lock.
+    if len(sys.argv) > 1 and sys.argv[1] == "--remove":
+        devpath = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("DEVPATH", "")
+        log.info("REMOVE: releasing lock for DEVPATH=%s", devpath)
+        release_init_lock(devpath)
+        sys.exit(0)
+
+    # Normal ADD mode.
     if len(sys.argv) > 1:
         dev_path = sys.argv[1]
         log.info("Using explicit device: %s", dev_path)
@@ -131,6 +224,9 @@ def main():
     if not wait_for_node(dev_path, timeout=5.0):
         log.error("Timed out waiting for %s", dev_path)
         sys.exit(1)
+
+    if not acquire_init_lock(dev_path):
+        sys.exit(0)
 
     if not send_init(dev_path):
         sys.exit(1)

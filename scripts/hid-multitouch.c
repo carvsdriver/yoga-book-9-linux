@@ -185,6 +185,7 @@ struct mt_device {
 	bool is_pressurepad;	/* is this device a pressurepad? */
 	bool is_haptic_touchpad;	/* is this device a haptic touchpad? */
 	bool serial_maybe;	/* need to check for serial protocol */
+	bool probe_done;	/* probe completed; allow post-probe SET_REPORT */
 
 	struct list_head applications;
 	struct list_head reports;
@@ -447,6 +448,8 @@ static const struct mt_class mt_classes[] = {
 			MT_QUIRK_FORCE_MULTI_INPUT |
 			MT_QUIRK_SEPARATE_APP_REPORT |
 			MT_QUIRK_HOVERING |
+			MT_QUIRK_CONTACT_CNT_ACCURATE |
+			MT_QUIRK_NOT_SEEN_MEANS_UP |
 			MT_QUIRK_YOGABOOK9I,
 		.export_all_inputs = true
 	},
@@ -542,7 +545,14 @@ static void mt_feature_mapping(struct hid_device *hdev,
 
 	switch (usage->hid) {
 	case HID_DG_CONTACTMAX:
-		mt_get_feature(hdev, field->report);
+		/*
+		 * Yoga Book 9: skip GET_REPORT during probe; the firmware
+		 * resets if it receives any control request before the init
+		 * Output report is sent (within ~1.18s of USB enumeration).
+		 * Logical maximum from the descriptor is used as the fallback.
+		 */
+		if (!(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I))
+			mt_get_feature(hdev, field->report);
 
 		td->maxcontacts = field->value[0];
 		if (!td->maxcontacts &&
@@ -576,7 +586,9 @@ static void mt_feature_mapping(struct hid_device *hdev,
 		break;
 	case 0xff0000c5:
 		/* Retrieve the Win8 blob once to enable some devices */
-		if (usage->usage_index == 0)
+		/* Yoga Book 9: skip; firmware resets before init if queried */
+		if (usage->usage_index == 0 &&
+		    !(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I))
 			mt_get_feature(hdev, field->report);
 		break;
 	}
@@ -1666,6 +1678,15 @@ static bool mt_need_to_apply_feature(struct hid_device *hdev,
 	u32 report_len;
 	int max;
 
+	/*
+	 * Yoga Book 9: skip SET_REPORT during probe. The firmware resets if it
+	 * receives any USB control request before the init Output report is sent
+	 * by udev. After probe_done is set, SET_REPORT from mt_on_hid_hw_open()
+	 * and later callers is safe because the init packet has been delivered.
+	 */
+	if ((cls->quirks & MT_QUIRK_YOGABOOK9I) && !td->probe_done)
+		return false;
+
 	switch (usage->hid) {
 	case HID_DG_INPUTMODE:
 		/*
@@ -2039,6 +2060,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
 				hdev->name);
 
 	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
+
+	/* Yoga Book 9: probe is done; subsequent mt_set_modes() callers may send SET_REPORT */
+	if (td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)
+		td->probe_done = true;
 
 	if (td->is_haptic_touchpad) {
 		if (hid_haptic_init(hdev, &td->haptic)) {

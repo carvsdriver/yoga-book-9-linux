@@ -1,0 +1,40 @@
+# /etc/udev/rules.d/91-ingenic-emulated-touchpad.rules
+#
+# Hide the INGENIC "Emulated Touchpad" input node from libinput on the
+# Lenovo Yoga Book 9 14IAH10 (83KJ).
+#
+# Why this node exists:
+# The 17EF:6161 composite USB HID device exposes a touchpad HID collection
+# alongside the two touchscreen collections. hid-multitouch creates a separate
+# input node for it named "Emulated Touchpad". libinput sees it as having both
+# pointer and touch capabilities (Capabilities: pointer touch).
+#
+# Why it breaks the on-screen keyboard:
+# Every finger tap on either touchscreen fires TWO independent event streams:
+#   1. Touchscreen Top/Bottom (EV_ABS MT) → compositor routes via touch focus
+#      to the OSK window — correct.
+#   2. Emulated Touchpad (EV_BTN + pointer motion at the same coordinate) →
+#      compositor interprets as a mouse click on whatever window is at that
+#      position — this hits the window behind the OSK, stealing focus and
+#      causing KDE OSK / Maliit to freeze or dismiss mid-interaction.
+#
+# Fix: set LIBINPUT_IGNORE_DEVICE=1 so libinput never opens the node.
+# The real touchscreen nodes (Touchscreen Top / Touchscreen Bottom) handle
+# all touch input; the Emulated Touchpad is fully redundant.
+#
+# Install:
+#   sudo cp 91-ingenic-emulated-touchpad.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=input --action=add
+#
+# Verify:
+#   sudo udevadm info /dev/input/eventN | grep LIBINPUT_IGNORE
+#     (replace eventN with the Emulated Touchpad node, e.g. event22)
+#   sudo libinput list-devices | grep -A4 "Emulated Touchpad"
+#     (should disappear from libinput's device list after trigger)
+
+ACTION=="add|change", \
+    SUBSYSTEM=="input", \
+    KERNEL=="event*", \
+    ATTRS{name}=="INGENIC Gadget Serial and keyboard Emulated Touchpad", \
+    ENV{LIBINPUT_IGNORE_DEVICE}="1"

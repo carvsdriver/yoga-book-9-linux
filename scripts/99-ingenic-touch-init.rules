@@ -24,8 +24,15 @@
 #   sudo udevadm trigger --verbose --action=add --subsystem-match=hidraw
 #   sudo journalctl -b | grep ingenic-touch-init
 
-SUBSYSTEM=="hidraw", \
+ACTION=="add", \
+    SUBSYSTEM=="hidraw", \
     ENV{ID_VENDOR_ID}=="17ef", \
     ENV{ID_MODEL_ID}=="6161", \
     ATTRS{bInterfaceNumber}=="02", \
     RUN+="/usr/local/sbin/ingenic-touch-init.py %N"
+
+ACTION=="remove", \
+    SUBSYSTEM=="hidraw", \
+    ENV{ID_VENDOR_ID}=="17ef", \
+    ENV{ID_MODEL_ID}=="6161", \
+    RUN+="/usr/local/sbin/ingenic-touch-init.py --remove $env{DEVPATH}"

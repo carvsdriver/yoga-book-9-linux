@@ -1,0 +1,24 @@
+# /etc/udev/rules.d/90-ingenic-touch-calibration.rules
+#
+# Apply 180° LIBINPUT_CALIBRATION_MATRIX to the top touchscreen on the
+# Lenovo Yoga Book 9 14IAH10 (83KJ).
+#
+# eDP-1 (top screen) is physically mounted inverted, so raw touch coordinates
+# are mirrored on both axes relative to what KWin expects.
+#
+# Why ATTRS{name} instead of ID_PATH:
+# Both touchscreens (Top and Bottom) share the same ID_PATH because they come
+# from the same composite USB HID device (17EF:6161). The hid-multitouch kernel
+# patch (MT_QUIRK_YOGABOOK9I) assigns distinct input device names, so we match
+# on name to disambiguate.
+#
+# Matrix format: libinput affine transform, row-major, implicit [0 0 1] last row
+#   [ a  b  c ]   [ -1  0  1 ]
+#   [ d  e  f ] = [  0 -1  1 ]   ← 180° rotation about centre of [0,1]×[0,1]
+#   [ 0  0  1 ]   [  0  0  1 ]
+#
+
+SUBSYSTEM=="input", \
+    KERNEL=="event*", \
+    ATTRS{name}=="INGENIC Gadget Serial and keyboard Touchscreen Top", \
+    ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
