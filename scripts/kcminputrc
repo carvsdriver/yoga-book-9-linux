@@ -5,6 +5,15 @@ OutputUuid=df2bea01-19d4-4070-a7b7-01516afd3c6a
 [Libinput][6127][24929][INGENIC Gadget Serial and keyboard Emulated Touchpad]
 Enabled=true
 
+[Libinput][6127][24929][INGENIC Gadget Serial and keyboard Stylus Bottom]
+OutputName=eDP-2
+OutputUuid=5b5f2ece-cb62-487f-8a10-1b00068cd781
+
+[Libinput][6127][24929][INGENIC Gadget Serial and keyboard Stylus Top]
+CalibrationMatrix=-1,0,1,0,0,-1,1,0,0,0,1,0,0,0,0,1
+OutputName=eDP-1
+OutputUuid=df2bea01-19d4-4070-a7b7-01516afd3c6a
+
 [Libinput][6127][24929][INGENIC Gadget Serial and keyboard Touchscreen Bottom]
 Enabled=true
 OutputName=eDP-2

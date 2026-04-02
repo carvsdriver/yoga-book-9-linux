@@ -7,10 +7,14 @@ on the Lenovo Yoga Book 9 14IAH10 (83KJ) running Fedora 43 / Linux 6.19.
 
 Three separate bugs were fixed:
 
-1. **USB reset loop** — The INGENIC touchscreen controller resets itself unless
-   it receives a specific HID Output report within ~1.18 seconds of USB
-   enumeration. Fixed in the kernel patch (Part 2), with a udev rule + Python
-   script as a belt-and-suspenders fallback.
+1. **USB reset loop** — The INGENIC touchscreen controller (interface 0, CDC ACM)
+   performs a fixed 4-connection boot sequence on every power cycle: it resets
+   the USB bus ~4 times at ~19 s intervals before stabilising. Linux's `cdc-acm`
+   driver failed to bind because the CDC data interface declares vendor-specific
+   class (`0xff`), causing interface 0 to remain unbound and leaving the firmware
+   in a continuous reset loop. Fixed with a cdc-acm kernel patch
+   (`VENDOR_CLASS_DATA_IFACE` + `ALWAYS_POLL_CTRL` quirks). Touch becomes
+   available ~60–80 s after boot due to the firmware's fixed reset sequence.
 
 2. **Touch misclassified as clickpad** — The kernel's `hid-multitouch` driver
    incorrectly sets `INPUT_PROP_BUTTONPAD` on the touchscreen input devices,
@@ -30,9 +34,9 @@ Three separate bugs were fixed:
 ### Discovery
 
 The touchscreen device (`17EF:6161`) was repeatedly disconnecting and
-reconnecting in `dmesg`, producing log spam and intermittent touch failures.
-Initial investigation pointed to the INGENIC USB controller resetting itself
-after enumeration.
+reconnecting in `dmesg`, producing log spam and no touch input. Without the
+cdc-acm patch below, the device is in a **continuous reset loop** — it never
+stabilises.
 
 ### Windows USB Capture
 
@@ -48,43 +52,167 @@ revealed the following sequence approximately 1.18 seconds after
 | **33** | **SET_REPORT** | **bmReq=0x21, bReq=0x20, wValue=0x0000, wIndex=0, wLength=7** |
 | 51 | GET_REPORT | Windows reads back to confirm |
 
-Packet 33 is the critical init command. The 7-byte payload is:
+Packet 33 has `bmRequestType=0x21` (Host→Device, Class, Interface) and
+`bRequest=0x20`. This is the **CDC `SET_LINE_CODING`** command, not a HID Output
+report. Windows loads `usbser.sys` for interface 0 (CDC ACM class), which sends
+this standard serial initialisation sequence; Linux binds the HID interfaces but
+leaves interface 0 completely unbound.
+
+The 7-byte payload encodes a line-coding struct: 115200 baud, 1 stop bit,
+no parity:
 ```
 00 c2 01 00 00 00 00
 ```
+(`dwDTERate=0x0001c200` LE = 115200, `bCharFormat=0`, `bParityType=0`,
+`bDataBits=0`)
 
-### Implementation Notes
+### Root Cause
 
-`bRequest=0x20` is a **HID Output report** — not a Feature report.
-- `HIDIOCSFEATURE` ioctl sends `bRequest=0x09` (Feature) — **wrong**
-- `write()` on a hidraw fd sends `bRequest=0x20` (Output) — **correct**
+Interface 0 of the composite device is a standard CDC ACM control interface
+(class `0x02`, subclass `0x02`, protocol `0x01`) with a single interrupt-IN
+endpoint (EP `0x82`). Interface 1 is the paired data interface, but it
+incorrectly declares vendor-specific class (`0xff`) instead of
+`USB_CLASS_CDC_DATA` (`0x0a`). This causes the Linux `cdc-acm` driver to reject
+the device at probe time with `-EINVAL`, leaving interface 0 entirely unbound and
+EP `0x82` never polled.
 
-The composite device has 7 interfaces (0–6). Interfaces 2–6 expose hidraw
-nodes; interface 0 has no HID function. The correct hidraw node is identified
-by finding the 17EF:6161 device with the lowest `bInterfaceNumber` (interface 2,
-typically `/dev/hidraw4`).
+With the patched driver, `cdc-acm` binds interface 0 and the following
+sequence is established per USB connection (confirmed with `cdc_acm.dyndbg=+p`):
 
-The udev rule uses `ENV{ID_VENDOR_ID}` and `ENV{ID_MODEL_ID}` rather than
+1. `SET_LINE_CODING` (bRequest=0x20) — firmware acknowledges
+2. `SET_CONTROL_LINE_STATE` (bRequest=0x22, val=0x3 = DTR+RTS) — firmware acknowledges
+3. Firmware sends exactly **one** `SERIAL_STATE(0x3)` notification on EP 0x82
+4. `ctrlurb` receives the notification and resubmits, polling continuously
+5. ~19 seconds later: firmware initiates a USB disconnect+reconnect
+
+This 4-step cycle repeats **exactly 4 times** on every fresh boot (power cycle).
+After the 4th cycle the firmware stabilises and remains connected indefinitely.
+The 4-cycle boot sequence is a fixed firmware property; its timing and count
+cannot be altered from the host side. The only way to avoid it is a firmware
+update.
+
+### Boot Timing
+
+Because the firmware performs 4 × ~19 s reset cycles, touch is not available
+until approximately **75–80 seconds after the USB device first enumerates**.
+On a typical boot the device enumerates before the login screen appears, so
+the effective wait from login to working touch is roughly **40–60 seconds**
+depending on how quickly the system boots to the login prompt.
+
+This delay is expected and unavoidable with the current firmware. Extensive
+debugging confirmed that neither rapid driver-side SET_CONTROL_LINE_STATE
+toggles, keepalive polling, nor forced USB bus resets reduce the cycle count —
+all of these either have no effect or cause the firmware to enter longer reset
+sequences.
+
+### Kernel Fix (cdc-acm patch)
+
+The definitive fix is a patch to `drivers/usb/class/cdc-acm.c` and
+`drivers/usb/class/cdc-acm.h` that adds two new quirk bits and a device ID
+table entry for `17EF:6161`:
+
+```c
+/* cdc-acm.h */
+#define VENDOR_CLASS_DATA_IFACE  BIT(9)   /* data interface uses vendor-specific class */
+#define ALWAYS_POLL_CTRL         BIT(10)  /* poll notification endpoint even with no TTY open */
+
+/* cdc-acm.c — ID table */
+{ USB_DEVICE_INTERFACE_CLASS(0x17ef, 0x6161, USB_CLASS_COMM),
+  .driver_info = VENDOR_CLASS_DATA_IFACE | ALWAYS_POLL_CTRL },
+```
+
+**`VENDOR_CLASS_DATA_IFACE`** — bypasses the `bInterfaceClass != USB_CLASS_CDC_DATA`
+check in `acm_probe()` that would otherwise return `-EINVAL` for the vendor-class
+data interface.
+
+**`ALWAYS_POLL_CTRL`** — submits the notification URB (`ctrlurb`) at probe time,
+before any TTY is opened. Without this flag cdc-acm only polls the notification
+endpoint while a TTY device is held open; with it, polling starts immediately at
+`probe()` and resumes automatically after `port_shutdown()` and after system
+resume, keeping the 20 s watchdog permanently suppressed.
+
+Changes in `cdc-acm.c`:
+1. `acm_port_activate()` — skip ctrlurb submit (already running) when `ALWAYS_POLL_CTRL`
+2. `acm_port_shutdown()` — resubmit ctrlurb after port closes when `ALWAYS_POLL_CTRL`
+3. `acm_resume()` — submit ctrlurb on resume even without an open TTY
+4. `acm_probe()` — submit ctrlurb immediately after `dev_info("ttyACM%d")` when `ALWAYS_POLL_CTRL`
+
+### Kernel Fix Install
+
+Follow the **Step 1 — Download the Kernel Source** instructions in Part 2 below
+to extract the source files and set up `~/kernel-src`. In addition to the HID
+driver files, extract the USB class driver files:
+
+```bash
+cd ~/kernel-src
+KVER=$(ls ../linux-*.tar.xz | grep -oP 'linux-\K[0-9.]+(?=\.tar)')
+tar xf ../linux-${KVER}.tar.xz --strip-components=4 \
+    linux-${KVER}/drivers/usb/class/cdc-acm.c \
+    linux-${KVER}/drivers/usb/class/cdc-acm.h
+```
+
+The `Makefile` in `~/kernel-src` builds both modules:
+```makefile
+obj-m := hid-multitouch.o cdc-acm.o
+```
+
+Apply, build, and install:
+
+```bash
+cd ~/kernel-src
+cp ~/projects/yoga9ibook/scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch .
+patch -p0 < 0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch
+
+# Build against the running kernel's headers
+make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules
+
+# Install (remove the original .xz so it doesn't shadow the .zst)
+zstd -f -19 cdc-acm.ko -o cdc-acm.ko.zst
+sudo mv /lib/modules/$(uname -r)/kernel/drivers/usb/class/cdc-acm.ko.xz \
+        ~/kernel-src/cdc-acm.ko.xz.orig
+sudo cp cdc-acm.ko.zst /lib/modules/$(uname -r)/kernel/drivers/usb/class/
+sudo depmod -a
+
+# Reload without rebooting
+sudo modprobe -r cdc_acm && sudo modprobe cdc_acm
+# Verify:
+dmesg | grep ttyACM   # should show: cdc_acm 3-6:1.0: ttyACM0: USB ACM device
+```
+
+### Userspace Fallback (belt-and-suspenders)
+
+Before the cdc-acm patch was identified, a udev rule + Python script was
+developed to send CDC `SET_LINE_CODING` and `SET_CONTROL_LINE_STATE` directly
+via the `USBDEVFS_CONTROL` ioctl. This remains available as a fallback for
+kernels without the cdc-acm patch, and as a workaround for the timing window
+between USB enumeration and cdc-acm probe completion.
+
+The script uses `ENV{ID_VENDOR_ID}` and `ENV{ID_MODEL_ID}` rather than
 `ATTRS{idVendor}` because `ATTRS{}` walks the sysfs ancestor chain independently
-for each attribute and can match against the USB hub (`idVendor=1d6b`) instead
-of the device.
+for each attribute and can silently match against the USB hub (`idVendor=1d6b`)
+instead of the device.
 
-### Files
+**Files:**
+- `scripts/ingenic-touch-init.py` — sends CDC `SET_LINE_CODING` (115200 baud)
+  and `SET_CONTROL_LINE_STATE` (DTR=1, RTS=1) via `USBDEVFS_CONTROL` ioctl
+- `scripts/99-ingenic-touch-init.rules` — udev rule firing on any hidraw ADD
+  for `17EF:6161`; lock mechanism ensures init is sent exactly once per
+  enumeration
 
-- `scripts/ingenic-touch-init.py` — Finds the correct hidraw node and sends
-  the init Output report
-- `scripts/99-ingenic-touch-init.rules` — udev rule firing on
-  `SUBSYSTEM=hidraw, ENV{ID_VENDOR_ID}=17ef, ENV{ID_MODEL_ID}=6161,
-  ATTRS{bInterfaceNumber}=02`
-
-### Install
-
+**Install (fallback only):**
 ```bash
 sudo cp ingenic-touch-init.py /usr/local/sbin/
 sudo chmod +x /usr/local/sbin/ingenic-touch-init.py
 sudo cp 99-ingenic-touch-init.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
+
+### Files
+
+- `scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`
+  — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (primary fix)
+- `scripts/ingenic-touch-init.py` — userspace CDC init fallback
+- `scripts/99-ingenic-touch-init.rules` — udev rule for fallback script
 
 ---
 
@@ -245,8 +373,10 @@ After applying the kernel patch:
 ### Files
 
 - `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch`
-  — Kernel patch for `drivers/hid/hid-multitouch.c` (clickpad fix + USB reset
-  loop fix + emulated touchpad class entry)
+  — Kernel patch for `drivers/hid/hid-multitouch.c`: clickpad fix
+  (`INPUT_PROP_DIRECT` only), skip `GET_REPORT` during probe (the firmware
+  resets if it receives a control request before CDC init completes), and
+  emulated touchpad class entry
 - `scripts/hid-multitouch.c` — Patched source file for reference / direct use
 - `scripts/0010-INGENIC__Gadget-touchscreen.bpf.c` — HID-BPF program
   (alternative to kernel patch; patches `BTN_LEFT` offsets in the descriptor)
@@ -297,7 +427,7 @@ EOF
 ```bash
 cd ~/kernel-src
 cp ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch .
-patch -p1 < 0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
+patch -p0 < 0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
 
 # Build against the running kernel's headers
 make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules

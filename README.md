@@ -90,6 +90,16 @@ affecting several models. It occurs more frequently under high load.
 Bluetooth occasionally enters a broken state after suspend/wake. A reboot
 fixes it. No permanent workaround found yet.
 
+### Top screen touch not responding
+
+Touch on the top screen (eDP-1) registers focus change but does not interact
+with UI elements (buttons, windows, OSK). Under investigation. The root cause
+appears to be a conflict between KWin's automatic 180° touch calibration (applied
+because eDP-1 is a Rotated180 output and Touchscreen Top is mapped to it in
+kcminputrc) and a libinput-level udev calibration rule that was previously
+required. Removing the udev rule (`90-ingenic-touch-calibration.rules`) is
+expected to resolve the conflict; unconfirmed as of this writing.
+
 ---
 
 ## TODO
@@ -459,13 +469,25 @@ sudo libinput list-devices | grep -A4 "Emulated Touchpad"
 # Should not appear — libinput ignores it after the rule takes effect
 ```
 
-### Touch-to-Display Mapping
+### Touch-to-Display Mapping and Stylus Routing
 
-Copy the KWin touch mapping to your config and log out/in:
+Copy the KWin input mapping to your config and log out/in:
 
 ```bash
 cp scripts/kcminputrc ~/.config/kcminputrc
 ```
+
+This maps both touchscreens and both stylus inputs to the correct output:
+
+- **Touchscreen Top** → eDP-1
+- **Touchscreen Bottom** → eDP-2
+- **Stylus Top** → eDP-1 (with 180° calibration matrix for the inverted panel)
+- **Stylus Bottom** → eDP-2
+
+KWin automatically applies a 180° calibration to Touchscreen Top because it is
+mapped to eDP-1, a Rotated180 output. No additional udev calibration rule is
+needed for the top touchscreen. Stylus Top requires an explicit calibration
+matrix in kcminputrc because KWin does not auto-calibrate tablet/stylus devices.
 
 ### Verify
 
@@ -869,7 +891,6 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | File | Purpose |
 |------|---------|
 | `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | Send init report to INGENIC controller on hidraw enumeration |
-| `scripts/90-ingenic-touch-calibration.rules` → `/etc/udev/rules.d/` | 180° calibration matrix for top (eDP-1) touchscreen |
 | `scripts/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/` | Hide emulated touchpad from libinput (fixes OSK freeze) |
 | `/etc/udev/rules.d/99-wakeup-disable.rules` | Disable XHCI/INGENIC wakeup sources |
 | `/etc/udev/hwdb.d/61-sensor-yogabook9.hwdb` | Accelerometer mount matrix |

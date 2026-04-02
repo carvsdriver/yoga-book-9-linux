@@ -1,18 +1,26 @@
 # /etc/udev/rules.d/99-ingenic-touch-init.rules
 #
-# Send HID Output report to INGENIC 17EF:6161 touchscreen on Lenovo Yoga Book 9
-# (83KJ) after USB enumeration to prevent firmware self-reset.
+# Send CDC SET_LINE_CODING + SET_CONTROL_LINE_STATE to the INGENIC 17EF:6161
+# touchscreen on Lenovo Yoga Book 9 (83KJ) after USB enumeration.
+#
+# Background: the INGENIC firmware expects CDC serial initialisation (the same
+# sequence Windows usbser.sys sends via interface 0) within ~1.18s of USB
+# enumeration, and resets every ~20s if it never arrives.  cdc-acm cannot bind
+# because the CDC data interface (1.1) uses vendor class 0xff with missing
+# descriptors.  The script sends the control requests directly via the
+# USBDEVFS_CONTROL ioctl, which does not require claiming any interface.
+#
+# The rule fires on any hidraw ADD for 17EF:6161 (not pinned to bInterfaceNumber)
+# so it triggers on whichever HID interface appears first.  The script's lock
+# mechanism (keyed on the HID instance ID) ensures the CDC init is sent exactly
+# once per device enumeration even if multiple hidraw nodes appear simultaneously.
 #
 # Why ENV{} instead of ATTRS{idVendor}/ATTRS{idProduct}:
-# ATTRS{} walks the sysfs ancestor chain independently for each key. Since
+# ATTRS{} walks the sysfs ancestor chain independently for each key.  Since
 # idVendor/idProduct exist on both the USB device (depth 2) AND the USB hub
-# (depth 3), udev can match them against different ancestors and the combined
-# condition fails silently. ENV{ID_VENDOR_ID} and ENV{ID_MODEL_ID} are set
-# unambiguously by the usb_id builtin in 60-persistent-hidraw.rules which
-# runs before this file.
-#
-# ATTRS{bInterfaceNumber} is safe to use alone because it only exists at
-# exactly one ancestor level (the USB interface, depth 1).
+# (depth 3), udev can silently match them against different ancestors.
+# ENV{ID_VENDOR_ID} and ENV{ID_MODEL_ID} are set unambiguously by the usb_id
+# builtin in 60-persistent-hidraw.rules which runs before this file.
 #
 # Install:
 #   sudo cp ingenic-touch-init.py /usr/local/sbin/
@@ -28,7 +36,6 @@ ACTION=="add", \
     SUBSYSTEM=="hidraw", \
     ENV{ID_VENDOR_ID}=="17ef", \
     ENV{ID_MODEL_ID}=="6161", \
-    ATTRS{bInterfaceNumber}=="02", \
     RUN+="/usr/local/sbin/ingenic-touch-init.py %N"
 
 ACTION=="remove", \

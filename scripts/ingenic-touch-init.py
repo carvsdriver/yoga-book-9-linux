@@ -13,6 +13,8 @@ import re
 import glob
 import time
 import logging
+import ctypes
+import fcntl
 
 # Use systemd journal handler when running under udev (no tty),
 # fall back to stderr when run interactively.
@@ -30,9 +32,51 @@ log = logging.getLogger("ingenic-touch-init")
 VENDOR_ID  = "17ef"
 PRODUCT_ID = "6161"
 
-# HID Output report: report_id=0x00 + 6 payload bytes.
-# Source: Windows USBPcap trace, packet 33, bReq=0x20, wLength=7.
-INIT_REPORT = bytes([0x00, 0xc2, 0x01, 0x00, 0x00, 0x00, 0x00])
+# CDC serial initialization.
+#
+# Source: Windows USBPcap trace (touchcap).  At t≈1.18s after USB enumeration,
+# usbser.sys sends:
+#   1. CDC SET_LINE_CODING (bRequest=0x20) to interface 0, data = 7-byte
+#      line-coding struct: dwDTERate=115200 (0x0001c200 LE), bCharFormat=0,
+#      bParityType=0, bDataBits=0.
+#   2. CDC SET_CONTROL_LINE_STATE (bRequest=0x22) to interface 0, wValue=0x0003
+#      (DTR=1, RTS=1).
+#
+# The INGENIC firmware resets within ~1.18s if no CDC init is received, and
+# resets every ~20s if the CDC interface is never properly initialised.
+# cdc-acm cannot bind because the data interface (1.1) uses vendor class 0xff
+# with zero-length descriptor references; control requests are sent via the
+# USBDEVFS_CONTROL ioctl instead, which does not require claiming the interface.
+#
+# Note: the original approach (HID Output report via hidraw write) used these
+# same 7 bytes but sent them as an interrupt OUT to the keyboard endpoint.
+# That happened to satisfy the 1.18s timer but not the 20s CDC watchdog.
+CDC_LINE_CODING = bytes([0x00, 0xc2, 0x01, 0x00, 0x00, 0x00, 0x00])
+
+class _UsbCtrlTransfer(ctypes.Structure):
+    _fields_ = [
+        ("bRequestType", ctypes.c_uint8),
+        ("bRequest",     ctypes.c_uint8),
+        ("wValue",       ctypes.c_uint16),
+        ("wIndex",       ctypes.c_uint16),
+        ("wLength",      ctypes.c_uint16),
+        ("timeout",      ctypes.c_uint32),   # milliseconds
+        ("data",         ctypes.c_void_p),
+    ]
+
+
+# USBDEVFS_CONTROL = _IOWR('U', 0, struct usbdevfs_ctrltransfer).
+# Computed from the actual struct size so alignment padding is handled correctly
+# on any platform (64-bit: sizeof=24 due to 4-byte pad before void*; would be
+# 20 on 32-bit — hardcoding either value causes ENOTTY on the other).
+_IOC_READ  = 2
+_IOC_WRITE = 1
+_USBDEVFS_CONTROL = (
+    ((_IOC_READ | _IOC_WRITE) << 30) |
+    (ord('U') << 8) |
+    (ctypes.sizeof(_UsbCtrlTransfer) << 16)
+)
+
 
 SETTLE_DELAY = 0.0
 
@@ -170,22 +214,85 @@ def find_hidraw_node():
     return chosen_path
 
 
+def get_usb_device_path(hidraw_dev_path):
+    """
+    Walk up the sysfs tree from a hidraw node to find the parent USB device,
+    then return its /dev/bus/usb/BBB/DDD path.
+
+    sysfs layout:
+      /sys/class/hidraw/hidrawN/device  ->  HID device dir
+        parent of HID dir               ->  USB interface dir
+          parent of interface dir       ->  USB device dir (busnum, devnum)
+    """
+    node = os.path.basename(hidraw_dev_path)
+    sysfs_node = os.path.join("/sys/class/hidraw", node)
+    try:
+        hid_dir      = os.path.realpath(os.path.join(sysfs_node, "device"))
+        usb_iface    = os.path.dirname(hid_dir)
+        usb_dev      = os.path.dirname(usb_iface)
+        busnum = int(sysfs_read(os.path.join(usb_dev, "busnum")))
+        devnum = int(sysfs_read(os.path.join(usb_dev, "devnum")))
+        return f"/dev/bus/usb/{busnum:03d}/{devnum:03d}"
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _usb_ctrl(usb_fd, bRequestType, bRequest, wValue, wIndex, data_bytes):
+    """
+    Send one USB control transfer via USBDEVFS_CONTROL ioctl.
+    Does not require claiming or detaching the interface.
+    """
+    if data_bytes:
+        buf = (ctypes.c_uint8 * len(data_bytes))(*data_bytes)
+        ptr = ctypes.cast(buf, ctypes.c_void_p).value
+    else:
+        buf = None
+        ptr = 0
+    xfer = _UsbCtrlTransfer(
+        bRequestType=bRequestType,
+        bRequest=bRequest,
+        wValue=wValue,
+        wIndex=wIndex,
+        wLength=len(data_bytes) if data_bytes else 0,
+        timeout=1000,
+        data=ptr,
+    )
+    fcntl.ioctl(usb_fd, _USBDEVFS_CONTROL, xfer)
+    # Keep buf alive until ioctl returns (prevent GC).
+    del buf
+
+
 def send_init(dev_path):
-    log.info("Opening %s", dev_path)
-    try:
-        fd = os.open(dev_path, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError as e:
-        log.error("Cannot open %s: %s", dev_path, e)
+    """
+    Send CDC SET_LINE_CODING and SET_CONTROL_LINE_STATE to interface 0.
+    This replicates what Windows usbser.sys sends at t≈1.18s after enumeration
+    to satisfy the firmware's CDC initialisation watchdog.
+    """
+    usb_path = get_usb_device_path(dev_path)
+    if usb_path is None:
+        log.error("Cannot determine USB device path for %s", dev_path)
         return False
+    log.info("USB device path: %s", usb_path)
+
     try:
-        written = os.write(fd, INIT_REPORT)
-        if written != len(INIT_REPORT):
-            log.error("Short write: %d of %d bytes", written, len(INIT_REPORT))
-            return Falsehttps://www.youtube.com/@stevemorrisracing
-        log.info("Init report sent (%d bytes) — done.", written)
+        fd = os.open(usb_path, os.O_RDWR)
+    except OSError as e:
+        log.error("Cannot open %s: %s", usb_path, e)
+        return False
+
+    try:
+        # 1. CDC SET_LINE_CODING (bRequest=0x20): 115200 baud, 1 stop, no parity
+        log.info("Sending CDC SET_LINE_CODING (115200 baud) → interface 0")
+        _usb_ctrl(fd, 0x21, 0x20, 0, 0, list(CDC_LINE_CODING))
+
+        # 2. CDC SET_CONTROL_LINE_STATE (bRequest=0x22): DTR=1, RTS=1
+        log.info("Sending CDC SET_CONTROL_LINE_STATE (DTR=1, RTS=1) → interface 0")
+        _usb_ctrl(fd, 0x21, 0x22, 0x0003, 0, [])
+
+        log.info("CDC init complete.")
         return True
     except OSError as e:
-        log.error("Write failed: %s", e)
+        log.error("CDC init failed: %s", e)
         return False
     finally:
         os.close(fd)
