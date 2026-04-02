@@ -90,15 +90,17 @@ affecting several models. It occurs more frequently under high load.
 Bluetooth occasionally enters a broken state after suspend/wake. A reboot
 fixes it. No permanent workaround found yet.
 
-### Top screen touch not responding
+### Top screen OSK not consistently triggered by touch
 
-Touch on the top screen (eDP-1) registers focus change but does not interact
-with UI elements (buttons, windows, OSK). Under investigation. The root cause
-appears to be a conflict between KWin's automatic 180° touch calibration (applied
-because eDP-1 is a Rotated180 output and Touchscreen Top is mapped to it in
-kcminputrc) and a libinput-level udev calibration rule that was previously
-required. Removing the udev rule (`90-ingenic-touch-calibration.rules`) is
-expected to resolve the conflict; unconfirmed as of this writing.
+Touch on the top screen (eDP-1) works correctly — coordinates are accurate,
+`TOUCH_UP` fires cleanly — but the on-screen keyboard does not reliably appear
+when tapping text fields. The bottom screen (eDP-2, primary) has no such issue.
+
+Root cause: KDE Plasma 6 / KWin Wayland does not consistently activate the
+virtual keyboard via `text_input_v3` when a touch event originates on a
+non-primary output. This is a KDE upstream bug; no workaround at the
+kernel/udev level exists. The stylus works correctly as a workaround for
+text entry on the top screen.
 
 ---
 
@@ -383,6 +385,27 @@ sudo udevadm control --reload-rules
 quirks in the descriptor. Fixed with a kernel patch that adds `MT_QUIRK_YOGABOOK9I`
 and skips the incorrect heuristics. The patch also adds the USB reset loop fix
 described in Bug 1.
+
+#### Before You Start: Upgrade to the Target Kernel
+
+The patches are built against the **running** kernel. Upgrade to the latest
+kernel and reboot before building so the installed module matches what is
+actually running:
+
+```bash
+sudo dnf upgrade kernel
+reboot
+```
+
+After reboot, confirm you are on the expected version:
+
+```bash
+uname -r   # e.g. 6.19.10-200.fc43.x86_64
+```
+
+If a new kernel arrives later via `dnf upgrade`, you must rebuild and reinstall
+both patches against the new kernel before rebooting into it. The installed
+`.ko.zst` files are version-specific and will not load under a different kernel.
 
 #### Getting the Kernel Source
 
