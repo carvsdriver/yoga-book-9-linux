@@ -90,18 +90,6 @@ affecting several models. It occurs more frequently under high load.
 Bluetooth occasionally enters a broken state after suspend/wake. A reboot
 fixes it. No permanent workaround found yet.
 
-### Top screen OSK not consistently triggered by touch
-
-Touch on the top screen (eDP-1) works correctly — coordinates are accurate,
-`TOUCH_UP` fires cleanly — but the on-screen keyboard does not reliably appear
-when tapping text fields. The bottom screen (eDP-2, primary) has no such issue.
-
-Root cause: KDE Plasma 6 / KWin Wayland does not consistently activate the
-virtual keyboard via `text_input_v3` when a touch event originates on a
-non-primary output. This is a KDE upstream bug; no workaround at the
-kernel/udev level exists. The stylus works correctly as a workaround for
-text entry on the top screen.
-
 ---
 
 ## TODO
