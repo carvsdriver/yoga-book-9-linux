@@ -185,7 +185,6 @@ struct mt_device {
 	bool is_pressurepad;	/* is this device a pressurepad? */
 	bool is_haptic_touchpad;	/* is this device a haptic touchpad? */
 	bool serial_maybe;	/* need to check for serial protocol */
-	bool probe_done;	/* probe completed; allow post-probe SET_REPORT */
 
 	struct list_head applications;
 	struct list_head reports;
@@ -444,13 +443,13 @@ static const struct mt_class mt_classes[] = {
 			MT_QUIRK_CONTACT_CNT_ACCURATE,
 	},
 		{ .name = MT_CLS_YOGABOOK9I,
-		.quirks = MT_QUIRK_ALWAYS_VALID |
+		.quirks = MT_QUIRK_NOT_SEEN_MEANS_UP |
+			MT_QUIRK_ALWAYS_VALID |
 			MT_QUIRK_FORCE_MULTI_INPUT |
 			MT_QUIRK_SEPARATE_APP_REPORT |
 			MT_QUIRK_HOVERING |
-			MT_QUIRK_CONTACT_CNT_ACCURATE |
-			MT_QUIRK_NOT_SEEN_MEANS_UP |
 			MT_QUIRK_YOGABOOK9I,
+		.maxcontacts = 10,
 		.export_all_inputs = true
 	},
 	{ .name = MT_CLS_EGALAX_P80H84,
@@ -529,12 +528,19 @@ static void mt_get_feature(struct hid_device *hdev, struct hid_report *report)
 		dev_warn(&hdev->dev, "failed to fetch feature %d\n",
 			 report->id);
 	} else {
+		/* The report ID in the request and the response should match */
+		if (report->id != buf[0]) {
+			hid_err(hdev, "Returned feature report did not match the request\n");
+			goto free;
+		}
+
 		ret = hid_report_raw_event(hdev, HID_FEATURE_REPORT, buf,
 					   size, 0);
 		if (ret)
 			dev_warn(&hdev->dev, "failed to report feature\n");
 	}
 
+free:
 	kfree(buf);
 }
 
@@ -545,14 +551,7 @@ static void mt_feature_mapping(struct hid_device *hdev,
 
 	switch (usage->hid) {
 	case HID_DG_CONTACTMAX:
-		/*
-		 * Yoga Book 9: skip GET_REPORT during probe; the firmware
-		 * resets if it receives any control request before the init
-		 * Output report is sent (within ~1.18s of USB enumeration).
-		 * Logical maximum from the descriptor is used as the fallback.
-		 */
-		if (!(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I))
-			mt_get_feature(hdev, field->report);
+		mt_get_feature(hdev, field->report);
 
 		td->maxcontacts = field->value[0];
 		if (!td->maxcontacts &&
@@ -569,10 +568,6 @@ static void mt_feature_mapping(struct hid_device *hdev,
 			break;
 		}
 
-		/* Yoga Book 9 reports Clickpad but is a direct touchscreen */
-		if (td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)
-			break;
-
 		mt_get_feature(hdev, field->report);
 		switch (field->value[usage->usage_index]) {
 		case MT_BUTTONTYPE_CLICKPAD:
@@ -586,9 +581,7 @@ static void mt_feature_mapping(struct hid_device *hdev,
 		break;
 	case 0xff0000c5:
 		/* Retrieve the Win8 blob once to enable some devices */
-		/* Yoga Book 9: skip; firmware resets before init if queried */
-		if (usage->usage_index == 0 &&
-		    !(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I))
+		if (usage->usage_index == 0)
 			mt_get_feature(hdev, field->report);
 		break;
 	}
@@ -653,11 +646,8 @@ static struct mt_application *mt_allocate_application(struct mt_device *td,
 
 	/*
 	 * Model touchscreens providing buttons as touchpads.
-	 * Yoga Book 9 has an emulated touchpad but its touch surfaces
-	 * are direct screens, not indirect pointers.
 	 */
-	if (application == HID_DG_TOUCHPAD &&
-	    !(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)) {
+	if (application == HID_DG_TOUCHPAD) {
 		mt_application->mt_flags |= INPUT_MT_POINTER;
 		td->inputmode_value = MT_INPUTMODE_TOUCHPAD;
 	}
@@ -814,15 +804,11 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 
 	/*
 	 * Model touchscreens providing buttons as touchpads.
-	 * Skip for Yoga Book 9 which has stylus buttons inside
-	 * touchscreen collections, not physical touchpad buttons.
 	 */
 	if (field->application == HID_DG_TOUCHSCREEN &&
 	    (usage->hid & HID_USAGE_PAGE) == HID_UP_BUTTON) {
-		if (!(app->quirks & MT_QUIRK_YOGABOOK9I)) {
-			app->mt_flags |= INPUT_MT_POINTER;
-			td->inputmode_value = MT_INPUTMODE_TOUCHPAD;
-		}
+		app->mt_flags |= INPUT_MT_POINTER;
+		td->inputmode_value = MT_INPUTMODE_TOUCHPAD;
 	}
 
 	/* count the buttons on touchpads */
@@ -1436,6 +1422,7 @@ static int mt_touch_input_configured(struct hid_device *hdev,
 	 */
 	if (cls->quirks & MT_QUIRK_APPLE_TOUCHBAR)
 		app->mt_flags |= INPUT_MT_DIRECT;
+
 	if (cls->is_indirect)
 		app->mt_flags |= INPUT_MT_POINTER;
 
@@ -1447,8 +1434,7 @@ static int mt_touch_input_configured(struct hid_device *hdev,
 
 	/* check for clickpads */
 	if ((app->mt_flags & INPUT_MT_POINTER) &&
-	    (app->buttons_count == 1) &&
-	    !(app->quirks & MT_QUIRK_YOGABOOK9I))
+	    (app->buttons_count == 1))
 		td->is_buttonpad = true;
 
 	if (td->is_buttonpad)
@@ -1582,6 +1568,144 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
 	return 0;
 }
 
+/*
+ * Yoga Book 9 14IAH10 descriptor fixup.
+ *
+ * The device includes a HID_DG_TOUCHPAD application collection designed for
+ * the Windows inbox HID driver's Win8 PTP touchpad mode.  On Linux we want
+ * only the HID_DG_TOUCHSCREEN collections.  The touchpad collection (and the
+ * HID_DG_BUTTONTYPE and Win8 compliance blob features it contains) must be
+ * removed so hid-multitouch does not misclassify the touchscreen nodes as
+ * indirect buttonpads.
+ *
+ * The firmware also resets if any USB control request is received while the
+ * CDC-ACM interface is initialising (~1.18 s after enumeration).  Dropping
+ * the Win8 blob and Contact Count Max feature reports prevents the
+ * GET_REPORT calls that hid-multitouch issues at probe.
+ */
+static void mt_yogabook9_fixup(struct hid_device *hdev, __u8 *rdesc,
+			       unsigned int *size)
+{
+	/* Usage Page (Digitizer), Usage (Touch Pad), Collection (Application) */
+	static const __u8 tp_app_hdr[] = { 0x05, 0x0d, 0x09, 0x05, 0xa1, 0x01 };
+	/* Vendor Usage Page 0xff00 (Win8 compliance blob header) */
+	static const __u8 win8_page[] = { 0x06, 0x00, 0xff };
+	/* Usage (Contact Count Max = 0x55) */
+	static const __u8 ccmax_usage[] = { 0x09, 0x55 };
+	unsigned int i;
+
+	/*
+	 * Step 1: find and remove the Touch Pad application collection.
+	 * Walk HID short items from the collection header to its matching
+	 * End Collection, then close the gap with memmove.
+	 */
+	for (i = 0; i + sizeof(tp_app_hdr) <= *size; i++) {
+		if (memcmp(rdesc + i, tp_app_hdr, sizeof(tp_app_hdr)) == 0) {
+			__u8 *start = rdesc + i;
+			__u8 *coll_end = NULL;
+			__u8 *p = start;
+			unsigned int drop;
+			int depth = 0;
+
+			while (p < rdesc + *size) {
+				__u8 b = *p;
+				int ds = b & 3;
+				int item_len;
+
+				if (b == 0xfe) { /* long item */
+					if (p + 2 >= rdesc + *size)
+						break;
+					item_len = p[1] + 3;
+				} else {
+					item_len = (ds == 3) ? 5 : ds + 1;
+				}
+				if (p + item_len > rdesc + *size)
+					break;
+
+				if ((b & 0xfc) == 0xa0)
+					depth++; /* Collection */
+				else if (b == 0xc0) {
+					depth--; /* End Collection */
+					if (depth == 0) {
+						coll_end = p;
+						break;
+					}
+				}
+				p += item_len;
+			}
+
+			if (!coll_end) {
+				hid_err(hdev,
+					"Yoga Book 9: Touch Pad End Collection not found\n");
+				break;
+			}
+
+			drop = coll_end - start + 1;
+			memmove(start, coll_end + 1, rdesc + *size - coll_end - 1);
+			*size -= drop;
+			hid_dbg(hdev,
+				"Yoga Book 9: dropped Touch Pad collection (%u bytes)\n",
+				drop);
+			break;
+		}
+	}
+
+	/*
+	 * Step 2: neutralize Win8 compliance blob feature reports remaining
+	 * in the touchscreen collections.  Change Usage Page 0xff00 to 0x0f00
+	 * so the case 0xff0000c5 branch in mt_feature_mapping() is not reached
+	 * and no GET_REPORT is issued.
+	 */
+	for (i = 0; i + sizeof(win8_page) <= *size; i++) {
+		if (memcmp(rdesc + i, win8_page, sizeof(win8_page)) == 0) {
+			rdesc[i + 2] = 0x0f; /* 0xff00 -> 0x0f00 */
+			hid_dbg(hdev,
+				"Yoga Book 9: neutralized Win8 blob at offset %u\n",
+				i);
+		}
+	}
+
+	/*
+	 * Step 3: neutralize Contact Count Max feature reports.  Change usage
+	 * 0x55 (HID_DG_CONTACTMAX) to 0x00 so mt_feature_mapping() does not
+	 * issue GET_REPORT.  The class maxcontacts field provides the value.
+	 */
+	for (i = 0; i + sizeof(ccmax_usage) <= *size; i++) {
+		if (memcmp(rdesc + i, ccmax_usage, sizeof(ccmax_usage)) == 0) {
+			rdesc[i + 1] = 0x00;
+			hid_dbg(hdev,
+				"Yoga Book 9: neutralized ContactMax at offset %u\n",
+				i);
+		}
+	}
+
+	/*
+	 * Step 4: neutralize Surface Switch (0x57) and Button Switch (0x58)
+	 * feature report usages in the Device Configuration collection.
+	 * mt_set_modes() issues HID_REQ_SET_REPORT for these on every
+	 * input-device open/close; those repeated control requests hit the
+	 * firmware's CDC-ACM init window and trigger resets.
+	 *
+	 * Input Mode (0x52) is intentionally left intact.  mt_set_modes()
+	 * sends it once at probe to set the device into touchscreen mode,
+	 * which flushes the firmware's contact buffer and clears a persistent
+	 * ghost contact (cid 2, fixed coordinates) that otherwise appears on
+	 * every enumeration.  By probe time cdc_acm has already satisfied the
+	 * CDC-ACM init watchdog (~130 ms), so the single SET_REPORT for Input
+	 * Mode arrives safely after the reset window has closed.
+	 */
+	for (i = 0; i + 2 <= *size; i++) {
+		if (rdesc[i] == 0x09 &&
+		    (rdesc[i + 1] == 0x57 ||
+		     rdesc[i + 1] == 0x58)) {
+			hid_dbg(hdev,
+				"Yoga Book 9: neutralized set-modes usage 0x%02x at offset %u\n",
+				rdesc[i + 1], i);
+			rdesc[i + 1] = 0x00;
+		}
+	}
+}
+
 static const __u8 *mt_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 			     unsigned int *size)
 {
@@ -1610,6 +1734,10 @@ got: %x\n",
 				rdesc[607]);
 		}
 	}
+
+	if (hdev->vendor == USB_VENDOR_ID_LENOVO &&
+	    hdev->product == USB_DEVICE_ID_LENOVO_YOGABOOK9I)
+		mt_yogabook9_fixup(hdev, rdesc, size);
 
 	return rdesc;
 }
@@ -1677,15 +1805,6 @@ static bool mt_need_to_apply_feature(struct hid_device *hdev,
 	char *buf;
 	u32 report_len;
 	int max;
-
-	/*
-	 * Yoga Book 9: skip SET_REPORT during probe. The firmware resets if it
-	 * receives any USB control request before the init Output report is sent
-	 * by udev. After probe_done is set, SET_REPORT from mt_on_hid_hw_open()
-	 * and later callers is safe because the init packet has been delivered.
-	 */
-	if ((cls->quirks & MT_QUIRK_YOGABOOK9I) && !td->probe_done)
-		return false;
 
 	switch (usage->hid) {
 	case HID_DG_INPUTMODE:
@@ -2060,10 +2179,6 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
 				hdev->name);
 
 	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
-
-	/* Yoga Book 9: probe is done; subsequent mt_set_modes() callers may send SET_REPORT */
-	if (td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)
-		td->probe_done = true;
 
 	if (td->is_haptic_touchpad) {
 		if (hid_haptic_init(hdev, &td->haptic)) {

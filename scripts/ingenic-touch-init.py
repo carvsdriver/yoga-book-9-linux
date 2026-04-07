@@ -80,21 +80,16 @@ _USBDEVFS_CONTROL = (
 
 SETTLE_DELAY = 0.0
 
-# Lock directory: one flag file per HID device instance.
-# Prevents sending the init packet twice to the same device instance,
-# which would cause a firmware reset.  /run is tmpfs; cleared on reboot.
-#
-# Lock key is the HID device instance ID (e.g. "0003_17EF_6161_04DE"),
-# NOT busnum_devnum.  USB devnums wrap at 127 per bus; within a single
-# boot session the kernel's global HID IDR counter (16-bit, FFFF slots)
-# effectively never wraps, eliminating stale-lock cascades.
+# Lock directory: one flag file per USB device enumeration.
+# The lock key is busnum_devnum, which is the same for all HID interfaces
+# belonging to the same USB device.  This ensures CDC init is sent exactly
+# once even though udev fires for multiple hidraw nodes simultaneously.
+# /run is tmpfs; cleared on reboot.
 LOCK_DIR = "/run/ingenic-touch-init"
 
-# Regex matching the HID device ID component in a sysfs DEVPATH.
-# Example: /devices/.../0003:17EF:6161.04DE/hidraw/hidraw4
-_HID_ID_RE = re.compile(
-    r"/([0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4})/"
-)
+# Regex matching a USB interface component in a sysfs DEVPATH.
+# Example: /devices/.../3-6:1.3/0003:17EF:6161.005F/hidraw/hidraw5
+_USB_IFACE_RE = re.compile(r'^(\d+-[\d.]+):\d+\.\d+$')
 
 
 def sysfs_read(path):
@@ -105,44 +100,67 @@ def sysfs_read(path):
         return None
 
 
-def get_hid_instance_key(dev_path):
+def _usb_dev_dir_from_hidraw(dev_path):
     """
-    Return the HID device instance ID as the lock key, e.g.
-    "0003_17EF_6161_04DE".  Reads the sysfs symlink for dev_path.
-    Returns None if sysfs is inaccessible (e.g. during REMOVE cleanup).
+    Walk sysfs from a hidraw device node up to the parent USB device directory.
+    Returns the absolute sysfs path of the USB device dir, or None on error.
     """
-    node = os.path.basename(dev_path)           # e.g. "hidraw4"
-    hidraw_dir = os.path.join("/sys/class/hidraw", node)
-    dev_link = os.path.join(hidraw_dir, "device")
+    node = os.path.basename(dev_path)
     try:
-        hid_dir = os.path.realpath(dev_link)        # e.g. ".../0003:17EF:6161.04DE"
-        hid_id = os.path.basename(hid_dir)          # "0003:17EF:6161.04DE"
-        return hid_id.replace(":", "_").replace(".", "_")
+        hid_dir = os.path.realpath(os.path.join("/sys/class/hidraw", node, "device"))
+        usb_iface = os.path.dirname(hid_dir)
+        return os.path.dirname(usb_iface)
     except OSError:
         return None
 
 
-def get_hid_instance_key_from_devpath(devpath):
+def get_usb_device_lock_key(dev_path):
     """
-    Extract HID instance key from a sysfs DEVPATH string.
-    Used during REMOVE when the sysfs symlink may already be gone.
-    Returns None if the DEVPATH doesn't contain a recognisable HID ID.
+    Return a lock key for the USB device that owns dev_path, e.g. "usb_3_23".
+    Shared by all HID interfaces of the same USB enumeration.
+    Returns None if sysfs is inaccessible.
     """
-    m = _HID_ID_RE.search(devpath)
-    if m:
-        return m.group(1).replace(":", "_").replace(".", "_")
+    usb_dev = _usb_dev_dir_from_hidraw(dev_path)
+    if usb_dev is None:
+        return None
+    busnum = sysfs_read(os.path.join(usb_dev, "busnum"))
+    devnum = sysfs_read(os.path.join(usb_dev, "devnum"))
+    if busnum and devnum:
+        return f"usb_{busnum}_{devnum}"
+    return None
+
+
+def get_usb_device_lock_key_from_devpath(devpath):
+    """
+    Extract the USB device lock key from a sysfs DEVPATH string.
+    Used during REMOVE when the sysfs class symlink may already be gone.
+    Walks up the DEVPATH to find the USB interface component, then reads
+    busnum/devnum from the parent USB device directory in /sys/devices/.
+    Returns None if the key cannot be determined.
+    """
+    # DEVPATH = /devices/.../usb3/3-6/3-6:1.3/0003:17EF:6161.005F/hidraw/hidraw5
+    parts = devpath.strip('/').split('/')
+    for i, part in enumerate(parts):
+        if _USB_IFACE_RE.match(part):
+            usb_dev_path = '/sys/' + '/'.join(parts[:i])
+            busnum = sysfs_read(os.path.join(usb_dev_path, 'busnum'))
+            devnum = sysfs_read(os.path.join(usb_dev_path, 'devnum'))
+            if busnum and devnum:
+                return f"usb_{busnum}_{devnum}"
     return None
 
 
 def acquire_init_lock(dev_path):
     """
-    Atomically create a lock file for this HID device instance.
+    Atomically create a lock file for this USB device enumeration.
     Returns True if we are the first (should send init), False if already done.
     Uses O_CREAT|O_EXCL for atomicity — no TOCTOU race between processes.
+    All hidraw nodes belonging to the same USB device share the same key,
+    so only the first process to win the lock sends the CDC init.
     """
-    key = get_hid_instance_key(dev_path)
+    key = get_usb_device_lock_key(dev_path)
     if key is None:
-        log.warning("Cannot determine HID instance key; proceeding without lock.")
+        log.warning("Cannot determine USB device lock key; proceeding without lock.")
         return True
     os.makedirs(LOCK_DIR, exist_ok=True)
     lock_path = os.path.join(LOCK_DIR, key)
@@ -159,18 +177,20 @@ def acquire_init_lock(dev_path):
 def release_init_lock(devpath):
     """
     Remove the lock file for the device identified by sysfs DEVPATH.
-    Called on REMOVE so the lock slot is freed before the HID IDR wraps.
+    Called on REMOVE so the lock slot is freed for the next enumeration.
+    Multiple REMOVE events (one per hidraw node) are harmless: the first
+    removes the file, the rest silently skip FileNotFoundError.
     """
-    key = get_hid_instance_key_from_devpath(devpath)
+    key = get_usb_device_lock_key_from_devpath(devpath)
     if key is None:
-        log.warning("Cannot extract HID instance key from DEVPATH: %s", devpath)
+        log.warning("Cannot extract USB device lock key from DEVPATH: %s", devpath)
         return
     lock_path = os.path.join(LOCK_DIR, key)
     try:
         os.remove(lock_path)
         log.info("Released lock %s", key)
     except FileNotFoundError:
-        pass  # already gone or never created (other interface's REMOVE)
+        pass  # already removed by another interface's REMOVE event
 
 
 def find_hidraw_node():

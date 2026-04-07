@@ -5,6 +5,21 @@
 This documents the complete investigation and fix for non-functional touchscreens
 on the Lenovo Yoga Book 9 14IAH10 (83KJ) running Fedora 43 / Linux 6.19.
 
+## Upstream Status
+
+Both kernel patches have been submitted to the Linux kernel mailing lists
+(2026-04-02) and are pending review:
+
+| Patch | List | Link |
+|-------|------|------|
+| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | linux-usb | [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | linux-input | [lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/) |
+
+Until the patches land in a released kernel, the out-of-tree build
+instructions below are required.
+
+---
+
 Three separate bugs were fixed:
 
 1. **USB reset loop** — The INGENIC touchscreen controller (interface 0, CDC ACM)
@@ -179,13 +194,25 @@ sudo modprobe -r cdc_acm && sudo modprobe cdc_acm
 dmesg | grep ttyACM   # should show: cdc_acm 3-6:1.0: ttyACM0: USB ACM device
 ```
 
-### Userspace Fallback (belt-and-suspenders)
+### Userspace Fallback (deprecated — do not use with cdc-acm patch)
 
 Before the cdc-acm patch was identified, a udev rule + Python script was
 developed to send CDC `SET_LINE_CODING` and `SET_CONTROL_LINE_STATE` directly
-via the `USBDEVFS_CONTROL` ioctl. This remains available as a fallback for
-kernels without the cdc-acm patch, and as a workaround for the timing window
-between USB enumeration and cdc-acm probe completion.
+via the `USBDEVFS_CONTROL` ioctl.
+
+> **This script must NOT be used alongside the cdc-acm patch.**
+>
+> With both active, the script races against `cdc_acm` for control of EP0 at
+> probe time.  A known bug in the script's REMOVE handler (the lock-key lookup
+> reads sysfs for the newly-enumerated device rather than the removed one,
+> causing the new device's lock file to be deleted) allows a second CDC init
+> attempt to proceed.  The resulting control request collision corrupts the
+> firmware's contact buffer and creates the persistent ghost contact described
+> above.  The udev rule (`99-ingenic-touch-init.rules`) must remain disabled
+> (or not installed) when the cdc-acm patch is present.
+
+The script is retained in the repository as documentation and as a fallback
+for kernels that cannot carry the cdc-acm patch.
 
 The script uses `ENV{ID_VENDOR_ID}` and `ENV{ID_MODEL_ID}` rather than
 `ATTRS{idVendor}` because `ATTRS{}` walks the sysfs ancestor chain independently
@@ -199,7 +226,7 @@ instead of the device.
   for `17EF:6161`; lock mechanism ensures init is sent exactly once per
   enumeration
 
-**Install (fallback only):**
+**Install (fallback only — requires cdc-acm patch to be absent):**
 ```bash
 sudo cp ingenic-touch-init.py /usr/local/sbin/
 sudo chmod +x /usr/local/sbin/ingenic-touch-init.py
@@ -213,6 +240,12 @@ sudo udevadm control --reload-rules
   — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (primary fix)
 - `scripts/ingenic-touch-init.py` — userspace CDC init fallback
 - `scripts/99-ingenic-touch-init.rules` — udev rule for fallback script
+
+### Upstream Submission
+
+Submitted 2026-04-02 to linux-usb@vger.kernel.org.
+Maintainers: Oliver Neukum <oneukum@suse.com>, Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Tracking: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/
 
 ---
 
@@ -329,38 +362,73 @@ sudo udev-hid-bpf list
 
 ### Kernel Fix
 
-The correct fix is a patch to `drivers/hid/hid-multitouch.c` that skips the
-three problematic heuristics when `MT_QUIRK_YOGABOOK9I` is set:
+The correct fix is a report descriptor fixup in `mt_report_fixup()` in
+`drivers/hid/hid-multitouch.c`.  Rather than scattering device-specific
+guards throughout the driver, the fixup rewrites the descriptor in memory
+before the HID core parses it, eliminating all three root causes at source:
 
-```c
-/* 1. Skip touchpad POINTER flag for YOGABOOK9I */
-if (application == HID_DG_TOUCHPAD &&
-    !(td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)) {
-    mt_application->mt_flags |= INPUT_MT_POINTER;
-    ...
-}
+**Step 1 — Remove the HID_DG_TOUCHPAD application collection**
 
-/* 2. Skip button-in-touchscreen heuristic for YOGABOOK9I */
-if (field->application == HID_DG_TOUCHSCREEN &&
-    (usage->hid & HID_USAGE_PAGE) == HID_UP_BUTTON) {
-    if (!(app->quirks & MT_QUIRK_YOGABOOK9I)) {
-        app->mt_flags |= INPUT_MT_POINTER;
-        ...
-    }
-}
+Walk HID short items from the `{ 0x05, 0x0d, 0x09, 0x05, 0xa1, 0x01 }`
+header to the matching End Collection, then close the gap with `memmove`.
+This eliminates all three BUTTONPAD heuristics and the feature reports
+inside the collection in one operation.
 
-/* 3. Skip BUTTONTYPE_CLICKPAD for YOGABOOK9I */
-case HID_DG_BUTTONTYPE:
-    if (td->mtclass.quirks & MT_QUIRK_YOGABOOK9I)
-        break;
-    ...
+**Step 2 — Neutralize Win8 compliance blob GET_REPORT triggers**
 
-/* 4. Skip is_buttonpad check for YOGABOOK9I */
-if ((app->mt_flags & INPUT_MT_POINTER) &&
-    (app->buttons_count == 1) &&
-    !(app->quirks & MT_QUIRK_YOGABOOK9I))
-    td->is_buttonpad = true;
-```
+Change Usage Page `0xff00` to `0x0f00` so the `case 0xff0000c5` branch in
+`mt_feature_mapping()` is not reached and no `GET_REPORT` is issued at
+probe.  These requests hit the firmware's CDC-ACM init window (~1.18 s
+after enumeration) and trigger resets.
+
+**Step 3 — Neutralize Contact Count Max GET_REPORT triggers**
+
+Change usage `0x55` (HID_DG_CONTACTMAX) to `0x00` so `mt_feature_mapping()`
+skips the GET_REPORT.  Set `maxcontacts = 10` in the `MT_CLS_YOGABOOK9I`
+class entry so the driver uses the correct limit without querying the
+device.
+
+**Step 4 — Neutralize Device Configuration SET_REPORT triggers (except Input Mode)**
+
+Change usages `0x57` (Surface Switch) and `0x58` (Button Switch) in the
+Device Configuration collection to `0x00` so `mt_set_modes()` does not
+issue `HID_REQ_SET_REPORT` for these on every input-device open/close.
+Without this, the repeated control requests hit the firmware's CDC-ACM init
+window and trigger resets, appearing as stuck touch state in KWin.
+
+Input Mode (`0x52`) is intentionally **left intact**.  The single
+`HID_REQ_SET_REPORT` sent by `mt_set_modes()` at probe time flushes the
+firmware's contact buffer and clears a persistent ghost contact (see
+*Ghost Contact* below).  By probe time the `cdc-acm` driver has already
+satisfied the CDC-ACM init watchdog (~130 ms after enumeration), so this
+one request arrives safely after the reset window has closed.
+
+**Step 5 — Add MT_QUIRK_NOT_SEEN_MEANS_UP to the class definition**
+
+`MT_QUIRK_NOT_SEEN_MEANS_UP` sets `INPUT_MT_DROP_UNUSED` on the multitouch
+input, causing the kernel to synthesize a lift event for any contact not
+present in the current frame.  This prevents stale slots from lingering if
+the firmware omits a contact from a report without first clearing TipSwitch.
+
+### Ghost Contact
+
+After each USB enumeration the firmware leaves a **persistent ghost contact**
+in its internal contact buffer: contact ID 2 at fixed coordinates
+(approximately x=10093, y=13758 in raw HID units), with TipSwitch always
+asserted and no tip-off transition.  This occupies a multitouch slot
+permanently and prevents KWin from seeing a clean finger-lift on the real
+finger, causing stuck touch state.
+
+The ghost is cleared by setting Input Mode via `HID_REQ_SET_REPORT` (the
+`mt_set_modes()` probe call for usage 0x52).  This is why Step 4 of the
+descriptor fixup leaves usage 0x52 intact — the one-time SET_REPORT at
+probe reliably flushes the firmware buffer.
+
+The ghost is stored in firmware RAM only: it does not survive a full power
+cycle (reboot) and is cleared within ~200 ms of probe by the Input Mode
+SET_REPORT.  It is not present if the firmware's CDC-ACM init sequence is
+disrupted during enumeration (e.g., by a race in a userspace CDC init script
+sending control requests while the firmware is still initialising).
 
 ### Result
 
@@ -369,17 +437,25 @@ After applying the kernel patch:
 - libinput correctly identifies both screens as `cap:t` (touch, direct)
 - KDE/Wayland responds to touch on both displays
 - On-screen keyboard appears on touch as expected
+- Ghost contact cleared at probe by Input Mode SET_REPORT; no stuck-touch
+  state on normal use
 
 ### Files
 
-- `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch`
-  — Kernel patch for `drivers/hid/hid-multitouch.c`: clickpad fix
-  (`INPUT_PROP_DIRECT` only), skip `GET_REPORT` during probe (the firmware
-  resets if it receives a control request before CDC init completes), and
-  emulated touchpad class entry
+- `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`
+  — Kernel patch for `drivers/hid/hid-multitouch.c`: descriptor fixup
+  (removes HID_DG_TOUCHPAD collection, neutralizes Win8 blob / CONTACTMAX /
+  SURFACESWITCH / BUTTONSWITCH feature reports, keeps INPUTMODE for ghost
+  contact clearing, sets `maxcontacts = 10`, adds `MT_QUIRK_NOT_SEEN_MEANS_UP`)
 - `scripts/hid-multitouch.c` — Patched source file for reference / direct use
 - `scripts/0010-INGENIC__Gadget-touchscreen.bpf.c` — HID-BPF program
   (alternative to kernel patch; patches `BTN_LEFT` offsets in the descriptor)
+
+### Upstream Submission
+
+Submitted 2026-04-02 to linux-input@vger.kernel.org.
+Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
+Tracking: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 
 ### Kernel Module Install (Until Patch Upstreamed)
 

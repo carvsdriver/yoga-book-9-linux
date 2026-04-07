@@ -109,6 +109,7 @@ text entry on the top screen.
 1. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
 2. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
 3. Bluetooth power-off by `kdeconnectd` at session start — permanent fix under investigation.
+4. Enable detection of keyboard docking in clamshell mode.
 
 ---
 
@@ -367,24 +368,51 @@ details, background, and the USBPcap investigation are in
 
 ### Bug 1: USB Reset Loop
 
-The INGENIC controller resets unless it receives a specific 7-byte HID Output
-report within ~1.18s of enumeration. The kernel patch (Bug 2) now sends this
-report automatically from `mt_probe`. The udev rule and Python script below
-remain as a belt-and-suspenders fallback:
+The INGENIC controller resets continuously because Linux's `cdc-acm` driver
+rejects the device at probe: the CDC data interface (interface 1) declares
+vendor-specific class (`0xFF`) instead of `USB_CLASS_CDC_DATA`, causing
+`-EINVAL` and leaving the notification endpoint (EP 0x82) unpolled. Without
+a consumer on EP 0x82, the firmware's watchdog fires every ~20 s and resets
+the USB bus indefinitely.
 
-```bash
-sudo cp scripts/ingenic-touch-init.py /usr/local/sbin/
-sudo chmod +x /usr/local/sbin/ingenic-touch-init.py
-sudo cp scripts/99-ingenic-touch-init.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-```
+Fixed with a `cdc-acm` kernel patch (`scripts/0002-USB-CDC-ACM-...patch`)
+that adds two quirks for `17EF:6161`: `VENDOR_CLASS_DATA_IFACE` bypasses the
+interface class check, and `ALWAYS_POLL_CTRL` keeps EP 0x82 polled at all
+times so the watchdog is permanently suppressed. See
+[README_Touch.md](README_Touch.md) for full build and install instructions.
+
+> **Upstream:** Patch submitted to linux-usb@vger.kernel.org (Oliver Neukum,
+> Greg Kroah-Hartman) on 2026-04-02.
+> [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/)
+
+A udev rule and Python script (`99-ingenic-touch-init.rules` +
+`ingenic-touch-init.py`) exist as a fallback for kernels without the cdc-acm
+patch.  **Do not install or enable this script alongside the cdc-acm patch.**
+A race in the script's REMOVE handler causes a second CDC init attempt on each
+re-enumeration, corrupting the firmware contact buffer and creating a persistent
+ghost contact.  The script is retained for reference only.
 
 ### Bug 2: Touch Misclassified as Clickpad
 
 `hid-multitouch` incorrectly sets `INPUT_PROP_BUTTONPAD` due to three firmware
-quirks in the descriptor. Fixed with a kernel patch that adds `MT_QUIRK_YOGABOOK9I`
-and skips the incorrect heuristics. The patch also adds the USB reset loop fix
-described in Bug 1.
+quirks in the descriptor.  Fixed with a descriptor fixup in `mt_report_fixup()`
+and a class definition update:
+
+- Removes the HID_DG_TOUCHPAD application collection (eliminates all three
+  BUTTONPAD heuristics)
+- Neutralizes Win8 compliance blob and Contact Count Max GET_REPORT triggers
+  (prevent firmware resets at probe)
+- Neutralizes Surface Switch / Button Switch SET_REPORT triggers (prevent firmware
+  resets on every input-device open/close); Input Mode is intentionally kept so
+  the probe-time SET_REPORT flushes the firmware's contact buffer and clears a
+  persistent ghost contact (cid 2, fixed coordinates, tip always asserted) that
+  otherwise causes stuck-touch state in KWin
+- Adds `MT_QUIRK_NOT_SEEN_MEANS_UP` to the class so stale multitouch slots are
+  released if the firmware omits a contact without a tip-off transition
+
+> **Upstream:** Patch submitted to linux-input@vger.kernel.org (Jiri Kosina,
+> Benjamin Tissoires) on 2026-04-02.
+> [lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/)
 
 #### Before You Start: Upgrade to the Target Kernel
 
@@ -900,7 +928,8 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `rotate-screens.sh` | `/usr/local/bin/rotate-screens.sh` | Rotate both screens based on accelerometer |
 | `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
 | `RPMCleanup.sh` | repo root | Remove build dependencies after howdy setup |
-| `scripts/ingenic-touch-init.py` | `/usr/local/sbin/ingenic-touch-init.py` | Send USB init report to INGENIC controller at enumeration |
+| `scripts/ingenic-touch-init.py` | `/usr/local/sbin/ingenic-touch-init.py` | CDC init fallback (deprecated — do not use with cdc-acm patch; see README_Touch.md) |
+| `scripts/rebuild-patches.sh` | run in place | Rebuild and reinstall both kernel patches |
 
 ### Systemd Services
 
@@ -913,7 +942,7 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | Send init report to INGENIC controller on hidraw enumeration |
+| `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | udev rule for CDC init fallback (deprecated — do not install with cdc-acm patch) |
 | `scripts/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/` | Hide emulated touchpad from libinput (fixes OSK freeze) |
 | `/etc/udev/rules.d/99-wakeup-disable.rules` | Disable XHCI/INGENIC wakeup sources |
 | `/etc/udev/hwdb.d/61-sensor-yogabook9.hwdb` | Accelerometer mount matrix |
