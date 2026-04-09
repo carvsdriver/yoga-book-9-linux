@@ -72,13 +72,6 @@ SDDM shows the login greeter on both screens simultaneously at boot.
 Once logged in, the correct single-screen layout is restored. This is a
 KWin/SDDM initialization limitation with no clean fix.
 
-### Upside-down Plymouth splash
-
-The Plymouth boot splash shows eDP-1 inverted during early boot before
-KDE applies its display config. Adding `video=eDP-1:2880x1800@120,rotate=180`
-to kernel parameters would fix this but risks interfering with the working
-screen rotation service.
-
 ### Occasional freeze on wake
 
 A rare full system freeze can occur shortly after waking from suspend,
@@ -156,8 +149,15 @@ sudo nano /etc/default/grub
 Change `GRUB_CMDLINE_LINUX` to:
 
 ```
-GRUB_CMDLINE_LINUX="reboot=acpi rhgb quiet"
+GRUB_CMDLINE_LINUX="reboot=acpi rhgb quiet video=eDP-1:panel_orientation=upside_down"
 ```
+
+- **`reboot=acpi`** — required for clean shutdown/reboot on this hardware
+- **`video=eDP-1:panel_orientation=upside_down`** — tells the DRM subsystem that
+  the top screen (eDP-1) is physically mounted upside-down. Plymouth and the
+  early boot framebuffer display correctly as a result. KWin reads but does not
+  use this property for its own rotation logic, so the screen rotation service
+  requires no changes.
 
 Rebuild GRUB:
 
