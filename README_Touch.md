@@ -12,11 +12,13 @@ Both kernel patches have been submitted to the Linux kernel mailing lists
 
 | Patch | List | Link |
 |-------|------|------|
-| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | linux-usb | [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | linux-input | [lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/) |
+| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | linux-usb | **Accepted** into `usb-next` 2026-04-13 — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git/commit/?h=usb-next&id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | linux-input | v1 rejected; v2 pending review — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 
-Until the patches land in a released kernel, the out-of-tree build
-instructions below are required.
+Until both patches land in a released kernel, the out-of-tree build
+instructions below are required. The `cdc-acm` patch is queued in `usb-next`
+and will be included in the next kernel release cycle; the out-of-tree build
+remains necessary until then.
 
 ---
 
@@ -245,7 +247,10 @@ sudo udevadm control --reload-rules
 
 Submitted 2026-04-02 to linux-usb@vger.kernel.org.
 Maintainers: Oliver Neukum <oneukum@suse.com>, Greg Kroah-Hartman <gregkh@linuxfoundation.org>
-Tracking: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/
+Submission: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/
+
+**Accepted** into Greg Kroah-Hartman's `usb-next` tree on 2026-04-13.
+Commit: https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git/commit/?h=usb-next&id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
 
 ---
 
@@ -442,8 +447,8 @@ After applying the kernel patch:
 
 ### Files
 
-- `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`
-  — Kernel patch for `drivers/hid/hid-multitouch.c`: descriptor fixup
+- `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`
+  — Kernel patch (v2) for `drivers/hid/hid-multitouch.c`: descriptor fixup
   (removes HID_DG_TOUCHPAD collection, neutralizes Win8 blob / CONTACTMAX /
   SURFACESWITCH / BUTTONSWITCH feature reports, keeps INPUTMODE for ghost
   contact clearing, sets `maxcontacts = 10`, adds `MT_QUIRK_NOT_SEEN_MEANS_UP`)
@@ -453,9 +458,18 @@ After applying the kernel patch:
 
 ### Upstream Submission
 
-Submitted 2026-04-02 to linux-input@vger.kernel.org.
+v1 submitted 2026-04-02. Rejected by Benjamin Tissoires: v1 used per-callsite
+`MT_QUIRK_YOGABOOK9I` guards; maintainer requested a clean report descriptor
+fixup instead.
+
+v2 submitted 2026-04-13. Implements the descriptor fixup approach as requested:
+`mt_yogabook9_fixup()` called from `mt_report_fixup()` drops the HID_DG_TOUCHPAD
+collection, neutralizes Win8 blob / ContactMax / SurfaceSwitch / ButtonSwitch
+GET/SET_REPORT triggers, and retains Input Mode for ghost contact clearing.
+
 Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
-Tracking: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
+v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
+v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
 
 ### Kernel Module Install (Until Patch Upstreamed)
 
@@ -502,8 +516,8 @@ EOF
 
 ```bash
 cd ~/kernel-src
-cp ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch .
-patch -p0 < 0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
+cp ~/projects/yoga9ibook/scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch .
+patch -p3 < v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch
 
 # Build against the running kernel's headers
 make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules

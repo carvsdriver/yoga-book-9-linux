@@ -369,9 +369,9 @@ interface class check, and `ALWAYS_POLL_CTRL` keeps EP 0x82 polled at all
 times so the watchdog is permanently suppressed. See
 [README_Touch.md](README_Touch.md) for full build and install instructions.
 
-> **Upstream:** Patch submitted to linux-usb@vger.kernel.org (Oliver Neukum,
-> Greg Kroah-Hartman) on 2026-04-02.
-> [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/)
+> **Upstream:** Accepted into Greg Kroah-Hartman's `usb-next` tree (2026-04-13).
+> Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git/commit/?h=usb-next&id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
+> Original submission: [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/)
 
 A udev rule and Python script (`99-ingenic-touch-init.rules` +
 `ingenic-touch-init.py`) exist as a fallback for kernels without the cdc-acm
@@ -398,9 +398,10 @@ and a class definition update:
 - Adds `MT_QUIRK_NOT_SEEN_MEANS_UP` to the class so stale multitouch slots are
   released if the firmware omits a contact without a tip-off transition
 
-> **Upstream:** Patch submitted to linux-input@vger.kernel.org (Jiri Kosina,
-> Benjamin Tissoires) on 2026-04-02.
-> [lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/)
+> **Upstream:** v1 rejected (maintainer requested descriptor fixup instead of
+> per-callsite quirk guards). v2 submitted 2026-04-13 with clean
+> `mt_report_fixup()` implementation.
+> v2: [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/)
 
 #### Before You Start: Upgrade to the Target Kernel
 
@@ -453,8 +454,8 @@ echo 'obj-m := hid-multitouch.o' > Makefile
 
 ```bash
 cd ~/kernel-src
-cp ~/projects/yoga9ibook/scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch .
-patch -p1 < 0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch
+cp ~/projects/yoga9ibook/scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch .
+patch -p3 < v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch
 
 make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules
 
@@ -939,7 +940,7 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `scripts/0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen.patch` | Fix `INPUT_PROP_BUTTONPAD` and USB reset loop for INGENIC touchscreen |
+| `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` and USB reset loop for INGENIC touchscreen (v2) |
 | `scripts/hid-multitouch.c` | Patched source for reference / rebuild |
 
 ### HID-BPF (Alternative to Kernel Patch)
