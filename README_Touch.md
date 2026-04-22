@@ -7,18 +7,17 @@ on the Lenovo Yoga Book 9 14IAH10 (83KJ) running Fedora 43 / Linux 6.19.
 
 ## Upstream Status
 
-Both kernel patches have been submitted to the Linux kernel mailing lists
-(2026-04-02) and are pending review:
+Kernel patches have been submitted to the Linux kernel mailing lists:
 
 | Patch | List | Link |
 |-------|------|------|
-| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | linux-usb | **Accepted** into `usb-next` 2026-04-13 — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git/commit/?h=usb-next&id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
+| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0003) | linux-usb | Staged locally; not yet submitted upstream |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | linux-input | v1 rejected; v2 pending review — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 
-Until both patches land in a released kernel, the out-of-tree build
-instructions below are required. The `cdc-acm` patch is queued in `usb-next`
-and will be included in the next kernel release cycle; the out-of-tree build
-remains necessary until then.
+Until all patches land in a released kernel, the out-of-tree build instructions
+below are required. Patch 0002 is merged to mainline and will ship in kernel 7.1;
+patches 0003 and the hid-multitouch v2 are still required until then.
 
 ---
 
@@ -29,8 +28,9 @@ Three separate bugs were fixed:
    the USB bus ~4 times at ~19 s intervals before stabilising. Linux's `cdc-acm`
    driver failed to bind because the CDC data interface declares vendor-specific
    class (`0xff`), causing interface 0 to remain unbound and leaving the firmware
-   in a continuous reset loop. Fixed with a cdc-acm kernel patch
-   (`VENDOR_CLASS_DATA_IFACE` + `ALWAYS_POLL_CTRL` quirks). Touch becomes
+   in a continuous reset loop. Fixed with two cdc-acm kernel patches: patch 0002
+   (`VENDOR_CLASS_DATA_IFACE` + `ALWAYS_POLL_CTRL` quirks) and patch 0003 (bulk-IN
+   polling to suppress a secondary ~55 s firmware watchdog). Touch becomes
    available ~60–80 s after boot due to the firmware's fixed reset sequence.
 
 2. **Touch misclassified as clickpad** — The kernel's `hid-multitouch` driver
@@ -146,13 +146,36 @@ data interface.
 before any TTY is opened. Without this flag cdc-acm only polls the notification
 endpoint while a TTY device is held open; with it, polling starts immediately at
 `probe()` and resumes automatically after `port_shutdown()` and after system
-resume, keeping the 20 s watchdog permanently suppressed.
+resume, keeping the notification endpoint watchdog suppressed.
 
-Changes in `cdc-acm.c`:
+Changes in `cdc-acm.c` (patch 0002):
 1. `acm_port_activate()` — skip ctrlurb submit (already running) when `ALWAYS_POLL_CTRL`
 2. `acm_port_shutdown()` — resubmit ctrlurb after port closes when `ALWAYS_POLL_CTRL`
 3. `acm_resume()` — submit ctrlurb on resume even without an open TTY
 4. `acm_probe()` — submit ctrlurb immediately after `dev_info("ttyACM%d")` when `ALWAYS_POLL_CTRL`
+
+### Bulk-IN Watchdog Fix (patch 0003)
+
+After deploying patch 0002 a second watchdog was discovered: the firmware
+monitors bulk-IN activity on interface 1 (the data endpoint, EP 0x81) in
+addition to the notification endpoint. With no TTY open, `cdc-acm` stops
+submitting read URBs after `port_shutdown()`. The firmware detects the idle
+bulk-IN endpoint and resets the USB bus approximately every **55 seconds**.
+
+Keeping ctrlurb active (0002) alone is insufficient — EP 0x82 activity
+satisfies the notification watchdog but the firmware separately tracks whether
+EP 0x81 is being read. Patch 0003 adds `acm_submit_read_urbs()` calls to
+both `ALWAYS_POLL_CTRL` paths:
+
+Changes in `cdc-acm.c` (patch 0003):
+5. `acm_probe()` — start bulk-IN polling (`acm_submit_read_urbs`) immediately at probe when `ALWAYS_POLL_CTRL`
+6. `acm_port_shutdown()` — restart bulk-IN polling after port close when `ALWAYS_POLL_CTRL`
+
+`acm_submit_read_urb()` is a no-op for URBs already in flight (it checks
+`read_urbs_free` bits), so these calls are safe at any point and do not
+conflict with normal TTY operation. With both patches applied, the firmware
+receives continuous activity on both EP 0x82 and EP 0x81 at all times,
+permanently suppressing both watchdogs.
 
 ### Kernel Fix Install
 
@@ -178,7 +201,9 @@ Apply, build, and install:
 ```bash
 cd ~/kernel-src
 cp ~/projects/yoga9ibook/scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch .
+cp ~/projects/yoga9ibook/scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch .
 patch -p0 < 0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch
+patch -p4 < 0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch
 
 # Build against the running kernel's headers
 make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules
@@ -239,18 +264,26 @@ sudo udevadm control --reload-rules
 ### Files
 
 - `scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`
-  — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (primary fix)
+  — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL)
+- `scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
+  — Kernel patch for `drivers/usb/class/cdc-acm.c` (bulk-IN polling for ALWAYS_POLL_CTRL); depends on 0002
+- `scripts/cdc-acm.c` — Patched source file (0002 + 0003 applied) for reference / rebuild
 - `scripts/ingenic-touch-init.py` — userspace CDC init fallback
 - `scripts/99-ingenic-touch-init.rules` — udev rule for fallback script
 
 ### Upstream Submission
 
-Submitted 2026-04-02 to linux-usb@vger.kernel.org.
+**Patch 0002** submitted 2026-04-02 to linux-usb@vger.kernel.org.
 Maintainers: Oliver Neukum <oneukum@suse.com>, Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 Submission: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/
 
 **Accepted** into Greg Kroah-Hartman's `usb-next` tree on 2026-04-13.
-Commit: https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/usb.git/commit/?h=usb-next&id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
+**Merged to Linus's mainline tree** on 2026-04-19 via `usb-7.1-rc1` pull; will ship in kernel 7.1.
+The commit also carries `Cc: stable@kernel.org` so stable backports (6.12.y, 6.6.y, etc.) are expected.
+Commit: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
+
+**Patch 0003** (bulk-IN fix) staged locally as of 2026-04-21; not yet submitted upstream.
+Depends on patch 0002 being applied first.
 
 ---
 
