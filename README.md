@@ -32,7 +32,7 @@ guide. Submit pull requests for recommended changes.
 5. [Installing rEFInd](#markdown-header-installing-refind)
 6. [Installing Packages](#markdown-header-installing-packages)
 7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 3 (OSK freeze)
+8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 3 (OSK freeze)
 9. [Keyboard Dock Detection](#markdown-header-keyboard-dock-detection)
 10. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
 11. [Display Configuration](#markdown-header-display-configuration)
@@ -364,21 +364,21 @@ a consumer on EP 0x82, the firmware enters a reset loop indefinitely.
 
 Fixed with two `cdc-acm` kernel patches:
 
-- **`scripts/0002-USB-CDC-ACM-...patch`** — adds `VENDOR_CLASS_DATA_IFACE` (bypasses
+- **`scripts/0003-USB-CDC-ACM-...patch`** — adds `VENDOR_CLASS_DATA_IFACE` (bypasses
   the interface class check) and `ALWAYS_POLL_CTRL` (keeps EP 0x82 polled at all times).
-- **`scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`** — keeps
+- **`scripts/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`** — keeps
   the bulk-IN endpoint (EP 0x81) drained at all times when `ALWAYS_POLL_CTRL` is set.
   The firmware has a second ~55-second watchdog that monitors bulk-IN activity; without
   this patch the device resets every ~55 s whenever no TTY is open.
 
 See [README_Touch.md](README_Touch.md) for full build and install instructions.
 
-> **Upstream (0002):** Merged to mainline 2026-04-19 (via `usb-7.1-rc1` pull); will ship in kernel 7.1.
+> **Upstream (0003):** Merged to mainline 2026-04-19 (via `usb-7.1-rc1` pull); will ship in kernel 7.1.
 > Carries `Cc: stable@kernel.org` — stable backports expected.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
 > Original submission: [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/)
 >
-> **Upstream (0003):** Staged locally (2026-04-21); not yet submitted.
+> **Upstream (0004):** Staged locally (2026-04-21); not yet submitted.
 
 A udev rule and Python script (`99-ingenic-touch-init.rules` +
 `ingenic-touch-init.py`) exist as a fallback for kernels without the cdc-acm
@@ -493,6 +493,41 @@ sudo udev-hid-bpf install \
     ~/kernel-src/bpf/0010-INGENIC__Gadget-touchscreen.bpf.o
 ```
 
+### Bug 2b: Stale MT Slots on All-Fingers-Up
+
+The INGENIC firmware sends `HID_DG_CONTACTCOUNT=0` in the frame immediately
+after all fingers lift, rather than simply omitting the frame.  In
+`mt_touch_report()`, the existing code only updates `num_expected` when
+`contact_count` is non-zero.  With `contact_count=0`, `num_expected` retains
+its previous value (e.g. 2 for a two-finger gesture), so the sync check
+`num_received >= num_expected` evaluates `0 >= 2` and never fires.
+`INPUT_MT_DROP_UNUSED` is never called, leaving kernel MT slots active with
+stale tracking IDs until the next touch.  Any userspace consumer that tracks
+active-contact transitions — such as a gesture daemon — sees a batch release
+of the old contacts alongside the new ones, corrupting session state between
+gestures.
+
+Fixed in `mt_touch_report()` by resetting `num_expected` to 0 when
+`contact_count` is zero and `num_received` is still 0 (i.e., this is the
+first packet of a new frame, not a continuation packet):
+
+```c
+else if (app->num_received == 0)
+    app->num_expected = 0;
+```
+
+With `num_expected=0`, the sync check `0 >= 0` fires immediately and
+`input_mt_sync_frame()` releases the stale slots via `INPUT_MT_DROP_UNUSED`.
+The `num_received == 0` guard is critical: it excludes continuation packets
+in multi-packet frames, which arrive with `num_received > 0`.
+
+Patch: **`scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
+
+> **Upstream:** Not yet submitted (2026-04-27).
+
+The patch is applied automatically by `scripts/rebuild-patches.sh` immediately
+after the Bug 2 hid-multitouch descriptor patch.
+
 ### Bug 3: Emulated Touchpad Causes On-Screen Keyboard Freezes
 
 The INGENIC composite device exposes a `HID_DG_TOUCHPAD` collection alongside
@@ -573,12 +608,39 @@ A kernel driver (`lenovo-yb9-kbdock`) handles this:
 
 ### Build and Install
 
+The easiest way is the rebuild script, which builds and installs all kernel
+patches (including this driver) in one step:
+
 ```bash
-cd ~/drivers/lenovo-ymc-yb9
-make
-sudo cp lenovo-yb9-kbdock.ko \
-    /lib/modules/$(uname -r)/kernel/drivers/platform/x86/lenovo/
+cd ~/projects/yoga9ibook/scripts
+bash rebuild-patches.sh
+```
+
+To build and install the driver on its own:
+
+```bash
+# 1. Install build prerequisites
+sudo dnf install kernel-devel-$(uname -r) rpm-build zstd
+
+# 2. Set up an out-of-tree build directory
+mkdir -p ~/kernel-src
+cp ~/projects/yoga9ibook/scripts/lenovo-yb9-kbdock.c ~/kernel-src/yb9-kbdock.c
+echo 'obj-m := yb9-kbdock.o' > ~/kernel-src/Makefile
+
+# 3. Build
+make -C /usr/src/kernels/$(uname -r) M=~/kernel-src modules
+
+# 4. Install
+zstd -f -19 ~/kernel-src/yb9-kbdock.ko -o ~/kernel-src/yb9-kbdock.ko.zst
+sudo install -d /lib/modules/$(uname -r)/extra
+sudo cp ~/kernel-src/yb9-kbdock.ko.zst /lib/modules/$(uname -r)/extra/
 sudo depmod -a
+```
+
+Load without rebooting:
+
+```bash
+sudo modprobe yb9_kbdock
 ```
 
 The module autoloads via udev (`alias wmi:806BD2A2-177B-481D-BFB5-3BA0BB4A2285`).
@@ -595,7 +657,8 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** Staged locally (2026-04-21); not yet submitted.
+> **Upstream (0005):** `scripts/0005-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch`
+> — full in-tree patch with `Kconfig`/`Makefile` entries; staged locally, not yet submitted.
 
 ---
 
@@ -997,11 +1060,13 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | File | Purpose |
 |------|---------|
 | `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (v2) |
+| `scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch: release stale MT slots when firmware sends `CONTACTCOUNT=0` on all-fingers-up |
 | `scripts/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
-| `scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled |
-| `scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
-| `scripts/cdc-acm.c` | Patched cdc-acm source (0002 + 0003 applied) for reference / rebuild |
-| `scripts/lenovo-yb9-kbdock.c` | WMI driver: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` |
+| `scripts/0003-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled |
+| `scripts/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
+| `scripts/cdc-acm.c` | Patched cdc-acm source (0003 + 0004 applied) for reference / rebuild |
+| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` |
+| `scripts/0005-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (upstream format) |
 
 ### HID-BPF (Alternative to Kernel Patch)
 

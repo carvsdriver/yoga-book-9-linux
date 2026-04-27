@@ -39,8 +39,7 @@ diff --git a/drivers/usb/class/cdc-acm.c b/drivers/usb/class/cdc-acm.c
 index XXXXXXX..XXXXXXX 100644
 --- a/drivers/usb/class/cdc-acm.c
 +++ b/drivers/usb/class/cdc-acm.c
-@@ -795,6 +795,11 @@ static void acm_port_shutdown(struct tty_port *port)
- 		/* port_shutdown() cleared DTR/RTS; restore them */
+@@ -802,3 +802,7 @@ static void acm_port_shutdown(struct tty_port *port)
  		acm_set_control(acm, USB_CDC_CTRL_DTR | USB_CDC_CTRL_RTS);
 +		/* restart bulk reads so the firmware watchdog keeps running */
 +		if (acm_submit_read_urbs(acm, GFP_KERNEL))
@@ -49,7 +48,7 @@ index XXXXXXX..XXXXXXX 100644
  	}
  }
 
-@@ -1562,6 +1567,11 @@ static int acm_probe(struct usb_interface *intf,
+@@ -1575,6 +1575,11 @@ static int acm_probe(struct usb_interface *intf,
  		if (usb_submit_urb(acm->ctrlurb, GFP_KERNEL))
  			dev_warn(&intf->dev,
  				 "failed to start persistent ctrl polling\n");

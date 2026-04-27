@@ -4,10 +4,11 @@
 #
 # Patches applied:
 #   0001  hid-multitouch  — Yoga Book 9 touchscreen descriptor fixup
-#   0002  cdc-acm         — INGENIC 17EF:6161 quirk (VENDOR_CLASS_DATA_IFACE +
+#   0002  hid-multitouch  — Fix stale MT slots when contact count drops to zero
+#   0003  cdc-acm         — INGENIC 17EF:6161 quirk (VENDOR_CLASS_DATA_IFACE +
 #                           ALWAYS_POLL_CTRL)
-#   0003  cdc-acm         — start bulk-IN polling when ALWAYS_POLL_CTRL is set
-#   0004  yb9-kbdock      — keyboard dock detection driver (new file; copied
+#   0004  cdc-acm         — start bulk-IN polling when ALWAYS_POLL_CTRL is set
+#   0005  yb9-kbdock      — keyboard dock detection driver (new file; copied
 #                           from lenovo-yb9-kbdock.c in this directory)
 #
 # Usage:
@@ -22,8 +23,9 @@ BUILD_DIR="${HOME}/kernel-src"
 RPM_CACHE="${HOME}/kernel-src-rpms"
 
 HID_PATCH="${SCRIPT_DIR}/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch"
-CDC_PATCH="${SCRIPT_DIR}/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
-CDC_PATCH3="${SCRIPT_DIR}/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
+HID_PATCH2="${SCRIPT_DIR}/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch"
+CDC_PATCH="${SCRIPT_DIR}/0003-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
+CDC_PATCH3="${SCRIPT_DIR}/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
 KBDOCK_SRC="${SCRIPT_DIR}/lenovo-yb9-kbdock.c"
 
 echo "==> Rebuilding patches for kernel ${KVER}"
@@ -32,18 +34,32 @@ echo "==> Rebuilding patches for kernel ${KVER}"
 # 1. Build prerequisites
 # --------------------------------------------------------------------------
 echo "==> Installing build prerequisites..."
-sudo dnf install -y "kernel-devel-${KVER}" rpm-build zstd
+sudo dnf install -y rpm-build zstd
+if ! rpm -q "kernel-devel-${KVER}" &>/dev/null; then
+    echo "==> kernel-devel-${KVER} not installed; attempting dnf install..."
+    # Strip arch suffix (.x86_64) for dnf name resolution
+    sudo dnf install -y "kernel-devel-${KVER%.*}" || \
+        echo "    WARNING: kernel-devel not found in repos — build will use existing /usr/src/kernels/${KVER}"
+fi
 
 # --------------------------------------------------------------------------
 # 2. Download source RPM (cached by kernel version)
 # --------------------------------------------------------------------------
+KVER_NVR="kernel-${KVER%.*}"   # e.g. kernel-6.19.12-200.fc43
+
 mkdir -p "${RPM_CACHE}"
-SRC_RPM_GLOB="${RPM_CACHE}/kernel-$(echo "${KVER}" | sed 's/\.[^.]*$//').src.rpm"
+SRC_RPM_GLOB="${RPM_CACHE}/${KVER_NVR}.src.rpm"
 
 if ! ls ${SRC_RPM_GLOB} &>/dev/null; then
-    echo "==> Downloading kernel source RPM..."
+    echo "==> Downloading kernel source RPM (${KVER_NVR})..."
     pushd "${RPM_CACHE}" >/dev/null
-    dnf download --source "kernel-$(echo "${KVER}" | sed 's/\.[^.]*$//')"
+    if ! dnf download --source "${KVER_NVR}" 2>/dev/null; then
+        echo "    dnf download unavailable; falling back to koji..."
+        if ! command -v koji &>/dev/null; then
+            sudo dnf install -y koji
+        fi
+        koji download-build --arch=src "${KVER_NVR}"
+    fi
     popd >/dev/null
 else
     echo "==> Source RPM already cached: $(ls ${SRC_RPM_GLOB})"
@@ -100,13 +116,18 @@ pushd "${BUILD_DIR}" >/dev/null
 patch -p3 < "${HID_PATCH}"
 popd >/dev/null
 
-echo "==> Applying cdc-acm patch (0002)..."
+echo "==> Applying hid-multitouch patch (0002)..."
+pushd "${BUILD_DIR}" >/dev/null
+patch -p3 < "${HID_PATCH2}"
+popd >/dev/null
+
+echo "==> Applying cdc-acm patch (0003)..."
 # ed-format diff; patch detects the format automatically
 pushd "${BUILD_DIR}" >/dev/null
 patch cdc-acm.c < "${CDC_PATCH}"
 popd >/dev/null
 
-echo "==> Applying cdc-acm patch (0003)..."
+echo "==> Applying cdc-acm patch (0004)..."
 # git format-patch: a/drivers/usb/class/cdc-acm.c → strip 4 components
 pushd "${BUILD_DIR}" >/dev/null
 patch -p4 < "${CDC_PATCH3}"
@@ -163,12 +184,23 @@ echo "==> Running depmod -a..."
 sudo depmod -a
 
 # --------------------------------------------------------------------------
+# 12. Reload modules
+# --------------------------------------------------------------------------
+echo "==> Reloading modules..."
+
+sudo rmmod hid_multitouch && sudo modprobe hid_multitouch \
+    && echo "    hid_multitouch reloaded" \
+    || echo "    WARNING: hid_multitouch reload failed — reboot required"
+
+sudo modprobe -r cdc_acm && sudo modprobe cdc_acm \
+    && echo "    cdc_acm reloaded" \
+    || echo "    WARNING: cdc_acm reload failed — reboot required"
+
+sudo rmmod yb9_kbdock lenovo_yb9_kbdock 2>/dev/null
+sudo modprobe yb9_kbdock \
+    && echo "    yb9_kbdock reloaded" \
+    || echo "    WARNING: yb9_kbdock reload failed — reboot required"
+
+# --------------------------------------------------------------------------
 echo ""
-echo "==> Done. Patches installed for ${KVER}."
-echo ""
-echo "    Reload without rebooting:"
-echo "      sudo rmmod hid_multitouch && sudo modprobe hid_multitouch"
-echo "      sudo modprobe -r cdc_acm && sudo modprobe cdc_acm"
-echo "      sudo rmmod yb9_kbdock lenovo_yb9_kbdock 2>/dev/null; sudo modprobe yb9_kbdock"
-echo ""
-echo "    Or reboot."
+echo "==> Done. Patches installed and loaded for ${KVER}."

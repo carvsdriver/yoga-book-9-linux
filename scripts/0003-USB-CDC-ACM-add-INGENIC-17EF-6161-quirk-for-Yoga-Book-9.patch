@@ -17,24 +17,40 @@
 > 				"%s - usb_submit_urb(ctrl irq) failed\n", __func__);
 > 			goto error_submit_urb;
 > 		}
-790a793,800
+790a793,803
 > 	if (acm->quirks & ALWAYS_POLL_CTRL) {
 > 		acm->ctrlurb->dev = acm->dev;
 > 		if (usb_submit_urb(acm->ctrlurb, GFP_KERNEL))
 > 			dev_dbg(&acm->control->dev,
 > 				"ctrl polling restart failed after port close\n");
-> 		/* port_shutdown() cleared DTR/RTS; restore them */
+> 		/* Restore firmware CDC state: LINE_CODING must precede CONTROL_LINE_STATE */
+> 		acm->line.dwDTERate = cpu_to_le32(115200);
+> 		acm->line.bDataBits = 0;
+> 		acm_set_line(acm, &acm->line);
 > 		acm_set_control(acm, USB_CDC_CTRL_DTR | USB_CDC_CTRL_RTS);
 > 	}
-1324a1335,1337
+1330a1335,1337
 > 		} else if (quirks & VENDOR_CLASS_DATA_IFACE) {
 > 			dev_dbg(&intf->dev,
 > 				"Vendor-specific data interface class, continuing.\n");
-1518a1532,1534
+1521,1523c1538,1549
+< 	acm->line.dwDTERate = cpu_to_le32(9600);
+< 	acm->line.bDataBits = 8;
+< 	acm_set_line(acm, &acm->line);
+---
+> 	if (quirks & ALWAYS_POLL_CTRL) {
+> 		/* Firmware requires Windows usbser.sys CDC init order:
+> 		 * SET_LINE_CODING(115200/0-bit) then SET_CONTROL_LINE_STATE(DTR|RTS) */
+> 		acm->line.dwDTERate = cpu_to_le32(115200);
+> 		acm->line.bDataBits = 0;
+> 	} else {
+> 		acm->line.dwDTERate = cpu_to_le32(9600);
+> 		acm->line.bDataBits = 8;
+> 	}
+> 	acm_set_line(acm, &acm->line);
 > 	if (quirks & ALWAYS_POLL_CTRL)
 > 		acm_set_control(acm, USB_CDC_CTRL_DTR | USB_CDC_CTRL_RTS);
-> 
-1539a1556,1562
+1545a1556,1562
 > 	if (acm->quirks & ALWAYS_POLL_CTRL) {
 > 		acm->ctrlurb->dev = acm->dev;
 > 		if (usb_submit_urb(acm->ctrlurb, GFP_KERNEL))
