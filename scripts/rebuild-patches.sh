@@ -5,10 +5,11 @@
 # Patches applied:
 #   0001  hid-multitouch  — Yoga Book 9 touchscreen descriptor fixup
 #   0002  hid-multitouch  — Fix stale MT slots when contact count drops to zero
-#   0003  cdc-acm         — INGENIC 17EF:6161 quirk (VENDOR_CLASS_DATA_IFACE +
+#   0003  hid-multitouch  — Suppress cycling ghost contacts (INGENIC firmware bug)
+#   0004  cdc-acm         — INGENIC 17EF:6161 quirk (VENDOR_CLASS_DATA_IFACE +
 #                           ALWAYS_POLL_CTRL)
-#   0004  cdc-acm         — start bulk-IN polling when ALWAYS_POLL_CTRL is set
-#   0005  yb9-kbdock      — keyboard dock detection driver (new file; copied
+#   0005  cdc-acm         — start bulk-IN polling when ALWAYS_POLL_CTRL is set
+#   0006  yb9-kbdock      — keyboard dock detection driver (new file; copied
 #                           from lenovo-yb9-kbdock.c in this directory)
 #
 # Usage:
@@ -24,8 +25,9 @@ RPM_CACHE="${HOME}/kernel-src-rpms"
 
 HID_PATCH="${SCRIPT_DIR}/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch"
 HID_PATCH2="${SCRIPT_DIR}/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch"
-CDC_PATCH="${SCRIPT_DIR}/0003-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
-CDC_PATCH3="${SCRIPT_DIR}/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
+HID_PATCH3="${SCRIPT_DIR}/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch"
+CDC_PATCH="${SCRIPT_DIR}/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
+CDC_PATCH3="${SCRIPT_DIR}/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
 KBDOCK_SRC="${SCRIPT_DIR}/lenovo-yb9-kbdock.c"
 
 echo "==> Rebuilding patches for kernel ${KVER}"
@@ -121,13 +123,18 @@ pushd "${BUILD_DIR}" >/dev/null
 patch -p3 < "${HID_PATCH2}"
 popd >/dev/null
 
-echo "==> Applying cdc-acm patch (0003)..."
+echo "==> Applying hid-multitouch patch (0003)..."
+pushd "${BUILD_DIR}" >/dev/null
+patch -p3 < "${HID_PATCH3}"
+popd >/dev/null
+
+echo "==> Applying cdc-acm patch (0004)..."
 # ed-format diff; patch detects the format automatically
 pushd "${BUILD_DIR}" >/dev/null
 patch cdc-acm.c < "${CDC_PATCH}"
 popd >/dev/null
 
-echo "==> Applying cdc-acm patch (0004)..."
+echo "==> Applying cdc-acm patch (0005)..."
 # git format-patch: a/drivers/usb/class/cdc-acm.c → strip 4 components
 pushd "${BUILD_DIR}" >/dev/null
 patch -p4 < "${CDC_PATCH3}"
@@ -144,6 +151,14 @@ make -C "/usr/src/kernels/${KVER}" M="${BUILD_DIR}" modules
 # --------------------------------------------------------------------------
 echo "==> Installing hid-multitouch.ko.zst..."
 pushd "${BUILD_DIR}" >/dev/null
+
+# The original .xz shadows .zst — move it aside if still present
+HID_XZ="/lib/modules/${KVER}/kernel/drivers/hid/hid-multitouch.ko.xz"
+if [ -f "${HID_XZ}" ]; then
+    echo "    Moving original hid-multitouch.ko.xz aside (shadows .zst)..."
+    sudo mv "${HID_XZ}" "${BUILD_DIR}/hid-multitouch.ko.xz.orig"
+fi
+
 zstd -f -19 hid-multitouch.ko -o hid-multitouch.ko.zst
 sudo cp hid-multitouch.ko.zst \
     "/lib/modules/${KVER}/kernel/drivers/hid/hid-multitouch.ko.zst"
@@ -177,6 +192,16 @@ zstd -f -19 yb9-kbdock.ko -o yb9-kbdock.ko.zst
 sudo cp yb9-kbdock.ko.zst "/lib/modules/${KVER}/extra/yb9-kbdock.ko.zst"
 popd >/dev/null
 
+# Remove stale extra/ copies of modules now installed to kernel/ — if both
+# paths exist, depmod may pick the wrong one depending on its search order.
+for mod in hid-multitouch cdc-acm; do
+    stale="/lib/modules/${KVER}/extra/${mod}.ko.zst"
+    if [ -f "${stale}" ]; then
+        echo "==> Removing stale extra/${mod}.ko.zst..."
+        sudo rm -f "${stale}"
+    fi
+done
+
 # --------------------------------------------------------------------------
 # 11. Update module dependencies
 # --------------------------------------------------------------------------
@@ -184,22 +209,74 @@ echo "==> Running depmod -a..."
 sudo depmod -a
 
 # --------------------------------------------------------------------------
-# 12. Reload modules
+# 12. Reload modules and re-enumerate INGENIC USB device
 # --------------------------------------------------------------------------
 echo "==> Reloading modules..."
 
-sudo rmmod hid_multitouch && sudo modprobe hid_multitouch \
-    && echo "    hid_multitouch reloaded" \
-    || echo "    WARNING: hid_multitouch reload failed — reboot required"
+sudo modprobe -r hid_multitouch 2>/dev/null || true
+sudo modprobe hid_multitouch \
+    && echo "    hid_multitouch loaded" \
+    || echo "    WARNING: hid_multitouch load failed — reboot required"
 
-sudo modprobe -r cdc_acm && sudo modprobe cdc_acm \
-    && echo "    cdc_acm reloaded" \
-    || echo "    WARNING: cdc_acm reload failed — reboot required"
+sudo modprobe -r cdc_acm 2>/dev/null || true
+sudo modprobe cdc_acm \
+    && echo "    cdc_acm loaded" \
+    || echo "    WARNING: cdc_acm load failed — reboot required"
 
-sudo rmmod yb9_kbdock lenovo_yb9_kbdock 2>/dev/null
+sudo modprobe -r yb9_kbdock lenovo_yb9_kbdock 2>/dev/null || true
 sudo modprobe yb9_kbdock \
-    && echo "    yb9_kbdock reloaded" \
-    || echo "    WARNING: yb9_kbdock reload failed — reboot required"
+    && echo "    yb9_kbdock loaded" \
+    || echo "    WARNING: yb9_kbdock load failed — reboot required"
+
+# Force a full USB re-enumeration of the INGENIC device.  A simple
+# modprobe cycle is not enough: the firmware sends a persistent ghost
+# contact at probe time that is only cleared by the Input Mode
+# SET_REPORT issued during hid-multitouch probe().  That SET_REPORT
+# only reaches the firmware if it arrives as part of a fresh USB
+# enumeration sequence (deauthorize → reauthorize triggers a USB reset
+# and a new enumeration, after which probe() runs from scratch).
+echo "==> Re-enumerating INGENIC USB device to flush firmware ghost contact..."
+INGENIC_USB=""
+for idv in /sys/bus/usb/devices/*/idVendor; do
+    d="$(dirname "$idv")"
+    if [ "$(cat "$d/idVendor" 2>/dev/null)" = "17ef" ] && \
+       [ "$(cat "$d/idProduct" 2>/dev/null)" = "6161" ]; then
+        INGENIC_USB="$d"
+        break
+    fi
+done
+if [ -n "$INGENIC_USB" ]; then
+    echo "    Device: ${INGENIC_USB##*/}"
+    echo 0 | sudo tee "$INGENIC_USB/authorized" >/dev/null
+    sleep 1
+    echo 1 | sudo tee "$INGENIC_USB/authorized" >/dev/null
+    sleep 2
+    echo "    Re-enumeration complete."
+else
+    echo "    WARNING: INGENIC 17EF:6161 USB device not found — reboot to clear ghost contact"
+fi
+
+# --------------------------------------------------------------------------
+# 13. Restart touchpad daemon
+# --------------------------------------------------------------------------
+DAEMON_BIN="/usr/lib64/libexec/plasma-touchpad-daemon"
+DAEMON_LOG="/tmp/plasma-touchpad.log"
+
+if [ -x "${DAEMON_BIN}" ]; then
+    echo "==> Restarting plasma-touchpad-daemon..."
+    pkill -f plasma-touchpad-daemon 2>/dev/null || true
+    sleep 0.3
+    nohup "${DAEMON_BIN}" >>"${DAEMON_LOG}" 2>&1 &
+    DAEMON_PID=$!
+    sleep 0.5
+    if kill -0 "${DAEMON_PID}" 2>/dev/null; then
+        echo "    plasma-touchpad-daemon started (PID ${DAEMON_PID})"
+    else
+        echo "    WARNING: plasma-touchpad-daemon exited immediately — check ${DAEMON_LOG}"
+    fi
+else
+    echo "    Skipping daemon restart: ${DAEMON_BIN} not found"
+fi
 
 # --------------------------------------------------------------------------
 echo ""

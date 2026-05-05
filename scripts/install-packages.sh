@@ -119,6 +119,23 @@ $DNF \
 
 echo ""
 echo "=== Package installation complete ==="
+
+# -------------------------------------------------------
+# Kernel patches
+# Build and install patched hid-multitouch, cdc-acm, and
+# yb9-kbdock modules for the running kernel.
+# -------------------------------------------------------
+REBUILD="${BASH_SOURCE%/*}/rebuild-patches.sh"
+if [ -x "${REBUILD}" ]; then
+    echo ""
+    echo "[kernel patches] Applying kernel patches..."
+    bash "${REBUILD}"
+else
+    echo ""
+    echo "[kernel patches] WARNING: rebuild-patches.sh not found at ${REBUILD}"
+    echo "  Run it manually after cloning the yoga9ibook repo."
+fi
+
 echo ""
 echo "Next steps:"
 echo "  1. Run: sudo refind-install    (if using rEFInd)"

@@ -1,0 +1,226 @@
+From 0000000000000000000000000000000000000003 Mon Sep 17 00:00:00 2001
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Mon, 04 May 2026 00:00:00 -0400
+Subject: [PATCH 3/6] HID: multitouch: Suppress cycling ghost contacts for
+ Yoga Book 9
+
+The INGENIC 17EF:6161 touchscreen (Lenovo Yoga Book 9 14IAH10) has a
+firmware defect where, after a multi-touch gesture, it indefinitely
+re-reports ghost contacts at the last lift positions.  Two variants are
+observed:
+
+1. Cycling ghost: after each finger lifts, the slot vanishes from the
+   next HID report without a TipSwitch=0 event (released implicitly by
+   INPUT_MT_DROP_UNUSED), then immediately reappears in a new slot with
+   a fresh tracking ID at the same coordinates, cycling at ~60 Hz.
+   These phantom contacts corrupt any userspace gesture engine that
+   relies on finger-count or tracking-ID stability.
+
+2. Static ghost: a single slot is reported forever with the same
+   tracking ID and TipSwitch=1; it never sends an explicit lift and
+   prevents the kernel MT layer from reaching a clean zero-contact state.
+
+Fix using a dual-track approach, both gated on MT_QUIRK_YOGABOOK9I:
+
+Track 1 — implicit lift recording (mt_sync_frame, before
+input_mt_sync_frame):
+  Walk the kernel MT slot array just before INPUT_MT_DROP_UNUSED runs.
+  Any slot that is still active but was not reported in the current
+  frame is about to be dropped implicitly.  Record its last known
+  position (via input_mt_get_value) in a ring buffer of up to 8
+  (x, y, jiffies) triples.
+
+Track 2 — explicit lift recording (mt_process_slot):
+  When a contact sends TipSwitch=0 (active-to-inactive on a currently
+  active slot), record its last confirmed position the same way.
+
+Suppression (mt_process_slot):
+  When a new contact activates, compare its position against all ring
+  entries.  If it falls within 300 raw units of a recorded position and
+  the recorded release was within the last 150 ms, suppress the contact
+  (set active = false) and refresh the entry's timestamp so persistent
+  ghosts remain filtered for as long as the firmware generates them.
+
+Stuck-contact detection (Track 3, mt_process_slot):
+  A static ghost (same tracking ID, same position, forever) is not
+  caught by the ring buffer because it never goes through a lift cycle.
+  Detect it by tracking the last reported position per kernel MT slot in
+  ghost_stable_x[]/ghost_stable_y[].  If a contact reports the exact
+  same (x, y) for MT_STUCK_THRESHOLD (3) consecutive frames, inject it
+  into the ring buffer and suppress it.
+
+The ghost suppression state is stored in struct mt_device (shared across
+all mt_application instances for the device) rather than per-application.
+The Yoga Book 9 firmware exposes two HID_DG_TOUCHSCREEN collections; with
+MT_QUIRK_SEPARATE_APP_REPORT each has its own mt_application, and contacts
+can appear in a different application's frame than the one that recorded
+the liftoff.  Per-application state would cause cross-application ghosts
+to escape suppression.
+
+Constants chosen for the INGENIC hardware:
+  - Ring size 8: enough for simultaneous ghosts with headroom.
+  - 300-unit tolerance: ~1% of the 30182-unit X axis.
+  - 150 ms window: below the minimum intentional re-touch interval.
+  - MT_STUCK_THRESHOLD 3: fast suppression without false positives.
+
+Signed-off-by: Dave Carey <carvsdriver@gmail.com>
+Tested-by: Dave Carey <carvsdriver@gmail.com>
+---
+ drivers/hid/hid-multitouch.c | 122 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 122 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index f1a2b3c4d5..a1b2c3d4e5 100644
+@@ -79,6 +79,13 @@
+ #define MT_QUIRK_YOGABOOK9I		BIT(24)
+ #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+ 
++/* max slots in the per-application ghost-position history ring */
++#define MT_GHOST_HISTORY_MAX		8
++/* max kernel MT slots tracked for stuck-contact detection */
++#define MT_GHOST_STABLE_MAX		16
++/* frames a contact must be at the exact same position to be flagged stuck */
++#define MT_STUCK_THRESHOLD		3
++
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+ 
+@@ -186,6 +193,16 @@
+ 	bool is_haptic_touchpad;	/* is this device a haptic touchpad? */
+ 	bool serial_maybe;	/* need to check for serial protocol */
+ 
++	/* cycling ghost suppression shared across all apps (MT_QUIRK_YOGABOOK9I) */
++	__s32 ghost_x[MT_GHOST_HISTORY_MAX];
++	__s32 ghost_y[MT_GHOST_HISTORY_MAX];
++	unsigned long ghost_jiffies[MT_GHOST_HISTORY_MAX];
++	u8 ghost_next;
++	/* per-slot position stability for stuck-contact detection */
++	__s32 ghost_stable_x[MT_GHOST_STABLE_MAX];
++	__s32 ghost_stable_y[MT_GHOST_STABLE_MAX];
++	u8 ghost_stable_cnt[MT_GHOST_STABLE_MAX];
++
+ 	struct list_head applications;
+ 	struct list_head reports;
+ };
+@@ -1059,6 +1076,37 @@
+ 	if (app->quirks & MT_QUIRK_WIN8_PTP_BUTTONS)
+ 		input_event(input, EV_KEY, BTN_LEFT, app->left_button_state);
+ 
++	/*
++	 * Cycling ghost suppression: before dropping unused slots, record
++	 * the positions of active slots that were not reported this frame.
++	 * For the INGENIC firmware, these are cycling ghost contacts that
++	 * disappear implicitly (no explicit TipSwitch=0) — their positions
++	 * must be captured here so the next frame's re-appearance can be
++	 * suppressed in mt_process_slot.
++	 */
++	if ((app->quirks & MT_QUIRK_YOGABOOK9I) && input->mt) {
++		struct input_mt *mt_layer = input->mt;
++		int s;
++
++		for (s = 0; s < mt_layer->num_slots; s++) {
++			struct input_mt_slot *mslot = &mt_layer->slots[s];
++
++			if (input_mt_is_active(mslot) &&
++			    !input_mt_is_used(mt_layer, mslot)) {
++				u8 gh = td->ghost_next & (MT_GHOST_HISTORY_MAX - 1);
++
++				td->ghost_x[gh] = input_mt_get_value(mslot,
++								      ABS_MT_POSITION_X);
++				td->ghost_y[gh] = input_mt_get_value(mslot,
++								      ABS_MT_POSITION_Y);
++				td->ghost_jiffies[gh] = jiffies;
++				td->ghost_next++;
++				if (s < MT_GHOST_STABLE_MAX)
++					td->ghost_stable_cnt[s] = 0;
++			}
++		}
++	}
++
+ 	input_mt_sync_frame(input);
+ 	input_event(input, EV_MSC, MSC_TIMESTAMP, app->timestamp);
+ 	input_sync(input);
+@@ -1174,6 +1222,80 @@
+ 		}
+ 	}
+ 
++	/*
++	 * Cycling ghost suppression for MT_QUIRK_YOGABOOK9I.
++	 *
++	 * The INGENIC 17EF:6161 firmware has two ghost variants:
++	 *
++	 * 1. Cycling ghost: each frame a new tracking ID appears at the
++	 *    same position; the old slot vanishes without TipSwitch=0 and
++	 *    is released by INPUT_MT_DROP_UNUSED in mt_sync_frame, which
++	 *    records the position before the drop.
++	 *
++	 * 2. Static ghost: one position is reported forever with the same
++	 *    tracking ID and TipSwitch=1; it never sends an explicit lift.
++	 *    Detected here by exact position stability over several frames.
++	 *
++	 * Both types end up in ghost_history[] and are suppressed whenever
++	 * a new contact activates within 300 raw units and 150 ms.
++	 */
++	if (app->quirks & MT_QUIRK_YOGABOOK9I) {
++		if (!active && mt && input_mt_is_active(&mt->slots[slotnum])) {
++			/* Explicit lift: record last-known position */
++			u8 gh = td->ghost_next & (MT_GHOST_HISTORY_MAX - 1);
++
++			td->ghost_x[gh] = input_mt_get_value(&mt->slots[slotnum],
++							       ABS_MT_POSITION_X);
++			td->ghost_y[gh] = input_mt_get_value(&mt->slots[slotnum],
++							       ABS_MT_POSITION_Y);
++			td->ghost_jiffies[gh] = jiffies;
++			td->ghost_next++;
++			if (slotnum < MT_GHOST_STABLE_MAX)
++				td->ghost_stable_cnt[slotnum] = 0;
++		} else if (active) {
++			bool suppress = false;
++			int gi;
++
++			/* Track 1: ghost history (cycling ghost, post-drop) */
++			for (gi = 0; gi < MT_GHOST_HISTORY_MAX && !suppress; gi++) {
++				if (!td->ghost_jiffies[gi])
++					continue;
++				if (time_after(jiffies, td->ghost_jiffies[gi] +
++						       msecs_to_jiffies(150)))
++					continue;
++				if (abs(*slot->x - td->ghost_x[gi]) < 300 &&
++				    abs(*slot->y - td->ghost_y[gi]) < 300) {
++					td->ghost_jiffies[gi] = jiffies;
++					suppress = true;
++				}
++			}
++
++			/* Track 2: stuck-contact detection (static ghost) */
++			if (!suppress && slotnum < MT_GHOST_STABLE_MAX) {
++				if (*slot->x == td->ghost_stable_x[slotnum] &&
++				    *slot->y == td->ghost_stable_y[slotnum]) {
++					if (++td->ghost_stable_cnt[slotnum] >=
++					    MT_STUCK_THRESHOLD) {
++						u8 gh = td->ghost_next &
++							(MT_GHOST_HISTORY_MAX - 1);
++						td->ghost_x[gh] = *slot->x;
++						td->ghost_y[gh] = *slot->y;
++						td->ghost_jiffies[gh] = jiffies;
++						td->ghost_next++;
++						suppress = true;
++					}
++				} else {
++					td->ghost_stable_x[slotnum] = *slot->x;
++					td->ghost_stable_y[slotnum] = *slot->y;
++					td->ghost_stable_cnt[slotnum] = 1;
++				}
++			}
++
++			if (suppress)
++				active = false;
++		}
++	}
++
+ 	input_mt_slot(input, slotnum);
+ 	input_mt_report_slot_state(input, tool, active);
+ 	if (active) {
+
+--
+2.53.0
