@@ -70,18 +70,24 @@ fi
 SRC_RPM="$(ls ${SRC_RPM_GLOB})"
 
 # --------------------------------------------------------------------------
-# 3. Extract kernel tarball from RPM (cached)
+# 3. Extract kernel tarball from RPM (cached per kernel version)
 # --------------------------------------------------------------------------
 TARBALL_DIR="${RPM_CACHE}"
-if ! ls "${TARBALL_DIR}"/linux-*.tar.xz &>/dev/null; then
+KVER_BASE="$(echo "${KVER}" | grep -oP '^\d+\.\d+\.\d+')"   # e.g. 7.0.6
+
+if ! ls "${TARBALL_DIR}"/linux-${KVER_BASE}*.tar.xz &>/dev/null; then
     echo "==> Extracting source tarball from RPM..."
     pushd "${TARBALL_DIR}" >/dev/null
     rpm2cpio "${SRC_RPM}" | cpio -idmv '*.tar.xz' 2>/dev/null
     popd >/dev/null
 fi
 
-KVER_SRC="$(ls "${TARBALL_DIR}"/linux-*.tar.xz | grep -oP 'linux-\K[0-9.]+(?=\.tar)')"
-TARBALL="${TARBALL_DIR}/linux-${KVER_SRC}.tar.xz"
+TARBALL="$(ls "${TARBALL_DIR}"/linux-${KVER_BASE}*.tar.xz 2>/dev/null | head -1)"
+if [ -z "${TARBALL}" ]; then
+    echo "ERROR: no source tarball for ${KVER_BASE} found in ${TARBALL_DIR}" >&2
+    exit 1
+fi
+KVER_SRC="$(basename "${TARBALL}" | grep -oP 'linux-\K[0-9.]+(?=\.tar)')"
 echo "==> Source tarball: linux-${KVER_SRC}.tar.xz"
 
 # --------------------------------------------------------------------------
@@ -129,9 +135,13 @@ patch -p3 < "${HID_PATCH3}"
 popd >/dev/null
 
 echo "==> Applying cdc-acm patch (0004)..."
-# ed-format diff; patch detects the format automatically
+# Upstreamed in kernel 7.0+; skip if the source already has ALWAYS_POLL_CTRL.
 pushd "${BUILD_DIR}" >/dev/null
-patch cdc-acm.c < "${CDC_PATCH}"
+if grep -q "ALWAYS_POLL_CTRL" cdc-acm.c; then
+    echo "    Already present in upstream source — skipping 0004."
+else
+    patch cdc-acm.c < "${CDC_PATCH}"
+fi
 popd >/dev/null
 
 echo "==> Applying cdc-acm patch (0005)..."
@@ -152,16 +162,12 @@ make -C "/usr/src/kernels/${KVER}" M="${BUILD_DIR}" modules
 echo "==> Installing hid-multitouch.ko.zst..."
 pushd "${BUILD_DIR}" >/dev/null
 
-# The original .xz shadows .zst — move it aside if still present
-HID_XZ="/lib/modules/${KVER}/kernel/drivers/hid/hid-multitouch.ko.xz"
-if [ -f "${HID_XZ}" ]; then
-    echo "    Moving original hid-multitouch.ko.xz aside (shadows .zst)..."
-    sudo mv "${HID_XZ}" "${BUILD_DIR}/hid-multitouch.ko.xz.orig"
-fi
-
+# Install to updates/ so depmod prefers our version over kernel/'s stock copy.
+# This survives kernel-core package reinstalls (which only touch kernel/).
+sudo install -d "/lib/modules/${KVER}/updates"
 zstd -f -19 hid-multitouch.ko -o hid-multitouch.ko.zst
 sudo cp hid-multitouch.ko.zst \
-    "/lib/modules/${KVER}/kernel/drivers/hid/hid-multitouch.ko.zst"
+    "/lib/modules/${KVER}/updates/hid-multitouch.ko.zst"
 popd >/dev/null
 
 # --------------------------------------------------------------------------
@@ -170,16 +176,10 @@ popd >/dev/null
 echo "==> Installing cdc-acm.ko.zst..."
 pushd "${BUILD_DIR}" >/dev/null
 
-# The original .xz shadows .zst — move it aside if still present
-CDC_XZ="/lib/modules/${KVER}/kernel/drivers/usb/class/cdc-acm.ko.xz"
-if [ -f "${CDC_XZ}" ]; then
-    echo "    Moving original cdc-acm.ko.xz aside (shadows .zst)..."
-    sudo mv "${CDC_XZ}" "${BUILD_DIR}/cdc-acm.ko.xz.orig"
-fi
-
+# Install to updates/ for the same reason as hid-multitouch above.
 zstd -f -19 cdc-acm.ko -o cdc-acm.ko.zst
 sudo cp cdc-acm.ko.zst \
-    "/lib/modules/${KVER}/kernel/drivers/usb/class/cdc-acm.ko.zst"
+    "/lib/modules/${KVER}/updates/cdc-acm.ko.zst"
 popd >/dev/null
 
 # --------------------------------------------------------------------------
@@ -192,8 +192,7 @@ zstd -f -19 yb9-kbdock.ko -o yb9-kbdock.ko.zst
 sudo cp yb9-kbdock.ko.zst "/lib/modules/${KVER}/extra/yb9-kbdock.ko.zst"
 popd >/dev/null
 
-# Remove stale extra/ copies of modules now installed to kernel/ — if both
-# paths exist, depmod may pick the wrong one depending on its search order.
+# Remove stale extra/ copies — depmod prefers updates/ over extra/ and kernel/.
 for mod in hid-multitouch cdc-acm; do
     stale="/lib/modules/${KVER}/extra/${mod}.ko.zst"
     if [ -f "${stale}" ]; then
@@ -276,6 +275,25 @@ if [ -x "${DAEMON_BIN}" ]; then
     fi
 else
     echo "    Skipping daemon restart: ${DAEMON_BIN} not found"
+fi
+
+# --------------------------------------------------------------------------
+# 14. Unbind/rebind hid-multitouch for INGENIC device to clear ghost state
+# --------------------------------------------------------------------------
+echo "==> Clearing ghost state: unbinding hid-multitouch from INGENIC device..."
+# Find the hid-multitouch-bound device entry for 17EF:6161
+HID_MT_DEV=$(ls /sys/bus/hid/drivers/hid-multitouch/ 2>/dev/null \
+    | grep -i "17EF:6161" | head -1)
+
+if [ -n "$HID_MT_DEV" ]; then
+    echo "    Device: ${HID_MT_DEV}"
+    echo "${HID_MT_DEV}" | sudo tee /sys/bus/hid/drivers/hid-multitouch/unbind >/dev/null
+    sleep 1
+    echo "${HID_MT_DEV}" | sudo tee /sys/bus/hid/drivers/hid-multitouch/bind >/dev/null
+    sleep 1
+    echo "    Ghost state cleared."
+else
+    echo "    WARNING: INGENIC hid-multitouch device not found; ghost state not cleared"
 fi
 
 # --------------------------------------------------------------------------

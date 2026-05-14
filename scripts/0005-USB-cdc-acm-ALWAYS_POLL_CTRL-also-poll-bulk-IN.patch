@@ -1,5 +1,5 @@
-From: yoga9ibook <local@yoga9ibook>
-Date: Mon, 21 Apr 2026
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Thu, 14 May 2026
 Subject: [PATCH] USB: cdc-acm: start bulk-IN polling when ALWAYS_POLL_CTRL is set
 
 The INGENIC 17EF:6161 touchscreen composite device has a ~55-second
@@ -30,30 +30,43 @@ Tested on Lenovo Yoga Book 9 14IAH10 (83KJ): without this patch the
 device resets every ~55 s when no TTY is open; with it the device
 remains stable indefinitely.
 
-Signed-off-by: yoga9ibook <local@yoga9ibook>
+Signed-off-by: Dave Carey <carvsdriver@gmail.com>
+Tested-by: Dave Carey <carvsdriver@gmail.com>
 ---
- drivers/usb/class/cdc-acm.c | 10 ++++++++++
- 1 file changed, 10 insertions(+)
+This follows commit f58752ebcb35 ("USB: CDC-ACM: add INGENIC 17EF:6161
+quirk for Yoga Book 9 14IAH10"), which added ALWAYS_POLL_CTRL to keep
+the ctrlurb active.  That commit addressed the notification-endpoint
+watchdog (~20 s).  This patch addresses a second watchdog that fires
+when bulk-IN data goes unread for ~55 s.
+
+This patch is based on top of Wentao Guan's pending fix
+("USB: cdc-acm: fix misplaced quirk defines and BIT(9) collision") which
+moves VENDOR_CLASS_DATA_IFACE and ALWAYS_POLL_CTRL from inside
+acm_ctrl_msg() to cdc-acm.h and reassigns them to BIT(10)/BIT(11) to
+avoid the NO_UNION_12 collision.  The bulk-IN additions here are
+independent of that renumbering and apply cleanly to either base, but
+the combined tree is the correct target once Wentao's fix merges.
+
+ drivers/usb/class/cdc-acm.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/drivers/usb/class/cdc-acm.c b/drivers/usb/class/cdc-acm.c
-index XXXXXXX..XXXXXXX 100644
 --- a/drivers/usb/class/cdc-acm.c
 +++ b/drivers/usb/class/cdc-acm.c
-@@ -802,3 +802,7 @@ static void acm_port_shutdown(struct tty_port *port)
+@@ -799,6 +799,9 @@
+ 			"ctrl polling restart failed after port close\n");
+ 		/* port_shutdown() cleared DTR/RTS; restore them */
  		acm_set_control(acm, USB_CDC_CTRL_DTR | USB_CDC_CTRL_RTS);
-+		/* restart bulk reads so the firmware watchdog keeps running */
 +		if (acm_submit_read_urbs(acm, GFP_KERNEL))
 +			dev_dbg(&acm->control->dev,
 +				"read urb restart failed after port close\n");
  	}
  }
 
-@@ -1575,6 +1575,11 @@ static int acm_probe(struct usb_interface *intf,
+@@ -1566,6 +1569,9 @@
  		if (usb_submit_urb(acm->ctrlurb, GFP_KERNEL))
  			dev_warn(&intf->dev,
  				 "failed to start persistent ctrl polling\n");
-+		/* also drain the bulk-IN endpoint so the firmware watchdog
-+		 * doesn't fire when no TTY is open */
 +		if (acm_submit_read_urbs(acm, GFP_KERNEL))
 +			dev_warn(&intf->dev,
 +				 "failed to start persistent bulk read polling\n");

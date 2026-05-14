@@ -12,12 +12,16 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | Patch | List | Link |
 |-------|------|------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0003) | linux-usb | Staged locally; not yet submitted upstream |
-| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | linux-input | v1 rejected; v2 pending review — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | Submitted 2026-05-14; awaiting review |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-13; awaiting review |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
-below are required. Patch 0002 is merged to mainline and will ship in kernel 7.1;
-patches 0003 and the hid-multitouch v2 are still required until then.
+below are required. The cdc-acm quirk patch is merged to mainline and will ship
+in kernel 7.1. The hid-multitouch misclassification fix (v2) is applied to
+hid/for-next and expected in the next merge window. The cdc-acm bulk-IN patch,
+the stale-slot fix, and the ghost contact fix are submitted and awaiting
+upstream review.
 
 ---
 
@@ -263,11 +267,13 @@ sudo udevadm control --reload-rules
 
 ### Files
 
-- `scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`
-  — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL)
-- `scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
-  — Kernel patch for `drivers/usb/class/cdc-acm.c` (bulk-IN polling for ALWAYS_POLL_CTRL); depends on 0002
-- `scripts/cdc-acm.c` — Patched source file (0002 + 0003 applied) for reference / rebuild
+- `scripts/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`
+  — Kernel patch for `drivers/usb/class/cdc-acm.{c,h}` (VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL); **merged** as f58752ebcb35
+- `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
+  — Kernel patch for `drivers/usb/class/cdc-acm.c` (bulk-IN polling for ALWAYS_POLL_CTRL); depends on 0004
+- `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch`
+  — Upstream submission patch for 0005 (clean diff against upstream master, proper authorship)
+- `scripts/cdc-acm.c` — Patched source file (0004 + 0005 applied) for reference / rebuild
 - `scripts/ingenic-touch-init.py` — userspace CDC init fallback
 - `scripts/99-ingenic-touch-init.rules` — udev rule for fallback script
 
@@ -282,8 +288,8 @@ Submission: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdrive
 The commit also carries `Cc: stable@kernel.org` so stable backports (6.12.y, 6.6.y, etc.) are expected.
 Commit: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
 
-**Patch 0003** (bulk-IN fix) staged locally as of 2026-04-21; not yet submitted upstream.
-Depends on patch 0002 being applied first.
+**Patch 0005** (bulk-IN fix) submitted 2026-05-14 to linux-usb@vger.kernel.org; awaiting review.
+Depends on patch 0004 (f58752ebcb35) and Wentao Guan's pending BIT-collision fix.
 
 ---
 
@@ -468,15 +474,39 @@ SET_REPORT.  It is not present if the firmware's CDC-ACM init sequence is
 disrupted during enumeration (e.g., by a race in a userspace CDC init script
 sending control requests while the firmware is still initialising).
 
+### Stale-Slot Ghost Contacts
+
+After the misclassification fix, repeated multi-finger gestures (3+ fingers,
+lift, repeat) produce ghost contacts on the top screen.  The firmware never
+clears TipSwitch in slots that are no longer active: each HID report may
+contain up to 10 slots with TipSwitch=1, but only the first ContactCount of
+those represent real contacts.  The remaining slots retain TipSwitch=1 at
+last-known positions indefinitely.
+
+Raw HID capture confirms: across a 60-second capture with repeated
+multi-finger gestures, 90% of frames had more TipSwitch=1 slots than the
+reported ContactCount.  ContactCount was always accurate.
+
+Fix: add `MT_QUIRK_CONTACT_CNT_ACCURATE` to the `MT_CLS_YOGABOOK9I` class.
+The driver stops processing slots once ContactCount contacts have been
+consumed, discarding the stale entries per HID specification section 17.
+`MT_QUIRK_NOT_SEEN_MEANS_UP` (already in the class) ensures slots skipped
+by this guard are released via `INPUT_MT_DROP_UNUSED` at frame sync.
+
+Submitted 2026-05-13 to linux-input@vger.kernel.org as a follow-up to v2;
+awaiting review.
+
 ### Result
 
-After applying the kernel patch:
+After applying the kernel patch and the ghost contact fix:
 - `props=0x02` = `INPUT_PROP_DIRECT` only (no BUTTONPAD, no POINTER)
 - libinput correctly identifies both screens as `cap:t` (touch, direct)
 - KDE/Wayland responds to touch on both displays
 - On-screen keyboard appears on touch as expected
-- Ghost contact cleared at probe by Input Mode SET_REPORT; no stuck-touch
-  state on normal use
+- Initial ghost contact cleared at probe by Input Mode SET_REPORT; no
+  stuck-touch state on normal use
+- Stale-slot ghost contacts suppressed by `MT_QUIRK_CONTACT_CNT_ACCURATE`;
+  no phantom touches after repeated multi-finger gestures
 
 ### Files
 
@@ -485,6 +515,10 @@ After applying the kernel patch:
   (removes HID_DG_TOUCHPAD collection, neutralizes Win8 blob / CONTACTMAX /
   SURFACESWITCH / BUTTONSWITCH feature reports, keeps INPUTMODE for ghost
   contact clearing, sets `maxcontacts = 10`, adds `MT_QUIRK_NOT_SEEN_MEANS_UP`)
+- `scripts/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch`
+  — Kernel patch for `drivers/hid/hid-multitouch.c`: adds
+  `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts;
+  depends on v2 misclassification fix
 - `scripts/hid-multitouch.c` — Patched source file for reference / direct use
 - `scripts/0010-INGENIC__Gadget-touchscreen.bpf.c` — HID-BPF program
   (alternative to kernel patch; patches `BTN_LEFT` offsets in the descriptor)
@@ -499,10 +533,14 @@ v2 submitted 2026-04-13. Implements the descriptor fixup approach as requested:
 `mt_yogabook9_fixup()` called from `mt_report_fixup()` drops the HID_DG_TOUCHPAD
 collection, neutralizes Win8 blob / ContactMax / SurfaceSwitch / ButtonSwitch
 GET/SET_REPORT triggers, and retains Input Mode for ghost contact clearing.
+**Applied** to hid/for-next by Jiri Kosina 2026-05-12.
+
+Ghost contact patch (v1) submitted 2026-05-13 as a follow-up; depends on v2.
 
 Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
+Ghost contact patch: submitted 2026-05-13 to linux-input@vger.kernel.org
 
 ### Kernel Module Install (Until Patch Upstreamed)
 

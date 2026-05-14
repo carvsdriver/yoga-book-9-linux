@@ -32,7 +32,7 @@ guide. Submit pull requests for recommended changes.
 5. [Installing rEFInd](#markdown-header-installing-refind)
 6. [Installing Packages](#markdown-header-installing-packages)
 7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 3 (OSK freeze)
+8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 2c (ghost contacts), Bug 3 (OSK freeze)
 9. [Keyboard Dock Detection](#markdown-header-keyboard-dock-detection)
 10. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
 11. [Display Configuration](#markdown-header-display-configuration)
@@ -364,21 +364,21 @@ a consumer on EP 0x82, the firmware enters a reset loop indefinitely.
 
 Fixed with two `cdc-acm` kernel patches:
 
-- **`scripts/0003-USB-CDC-ACM-...patch`** — adds `VENDOR_CLASS_DATA_IFACE` (bypasses
+- **`scripts/0004-USB-CDC-ACM-...patch`** — adds `VENDOR_CLASS_DATA_IFACE` (bypasses
   the interface class check) and `ALWAYS_POLL_CTRL` (keeps EP 0x82 polled at all times).
-- **`scripts/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`** — keeps
+- **`scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`** — keeps
   the bulk-IN endpoint (EP 0x81) drained at all times when `ALWAYS_POLL_CTRL` is set.
   The firmware has a second ~55-second watchdog that monitors bulk-IN activity; without
   this patch the device resets every ~55 s whenever no TTY is open.
 
 See [README_Touch.md](README_Touch.md) for full build and install instructions.
 
-> **Upstream (0003):** Merged to mainline 2026-04-19 (via `usb-7.1-rc1` pull); will ship in kernel 7.1.
+> **Upstream (0004):** Merged to mainline 2026-04-19 (via `usb-7.1-rc1` pull); will ship in kernel 7.1.
 > Carries `Cc: stable@kernel.org` — stable backports expected.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
 > Original submission: [lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdriver@gmail.com/)
 >
-> **Upstream (0004):** Staged locally (2026-04-21); not yet submitted.
+> **Upstream (0005):** Submitted 2026-05-14 to linux-usb@vger.kernel.org; awaiting review.
 
 A udev rule and Python script (`99-ingenic-touch-init.rules` +
 `ingenic-touch-init.py`) exist as a fallback for kernels without the cdc-acm
@@ -405,9 +405,8 @@ and a class definition update:
 - Adds `MT_QUIRK_NOT_SEEN_MEANS_UP` to the class so stale multitouch slots are
   released if the firmware omits a contact without a tip-off transition
 
-> **Upstream:** v1 rejected (maintainer requested descriptor fixup instead of
-> per-callsite quirk guards). v2 submitted 2026-04-13 with clean
-> `mt_report_fixup()` implementation.
+> **Upstream:** v1 rejected; v2 submitted 2026-04-13 and **applied to hid/for-next**
+> 2026-05-12 by Jiri Kosina. Expected in the next merge window.
 > v2: [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/)
 
 #### Before You Start: Upgrade to the Target Kernel
@@ -527,6 +526,31 @@ Patch: **`scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drop
 
 The patch is applied automatically by `scripts/rebuild-patches.sh` immediately
 after the Bug 2 hid-multitouch descriptor patch.
+
+### Bug 2c: Ghost Contacts from Stale Firmware Slots
+
+After the misclassification fix, repeated multi-finger gestures (3+ fingers,
+lift, repeat) produce ghost contacts on the top screen.  The firmware never
+clears TipSwitch in slots that are no longer active: each HID report may
+contain up to 10 slots with TipSwitch=1, but only the first ContactCount
+represent real contacts.  The remaining slots retain TipSwitch=1 at
+last-known positions indefinitely.
+
+Raw HID capture confirmed: 90% of frames had more active slots than
+ContactCount; ContactCount was always accurate.
+
+Fixed by adding `MT_QUIRK_CONTACT_CNT_ACCURATE` to `MT_CLS_YOGABOOK9I`.
+The driver stops processing slots once ContactCount contacts have been
+consumed, per HID specification section 17.  `MT_QUIRK_NOT_SEEN_MEANS_UP`
+(already in the class) releases skipped slots via `INPUT_MT_DROP_UNUSED`
+at frame sync.
+
+Patch: **`scripts/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch`**
+
+> **Upstream:** Submitted 2026-05-13 to linux-input@vger.kernel.org; awaiting
+> review. Depends on Bug 2 fix (v2) being applied first.
+
+The patch is applied automatically by `scripts/rebuild-patches.sh`.
 
 ### Bug 3: Emulated Touchpad Causes On-Screen Keyboard Freezes
 
@@ -1059,14 +1083,16 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (v2) |
+| `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (v2; applied hid/for-next 2026-05-12) |
+| `scripts/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (submitted 2026-05-13) |
 | `scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch: release stale MT slots when firmware sends `CONTACTCOUNT=0` on all-fingers-up |
 | `scripts/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
-| `scripts/0003-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled |
-| `scripts/0004-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
-| `scripts/cdc-acm.c` | Patched cdc-acm source (0003 + 0004 applied) for reference / rebuild |
+| `scripts/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35) |
+| `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
+| `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch` | cdc-acm bulk-IN patch upstream submission (submitted 2026-05-14) |
+| `scripts/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
 | `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` |
-| `scripts/0005-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (upstream format) |
+| `scripts/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (upstream format) |
 
 ### HID-BPF (Alternative to Kernel Patch)
 

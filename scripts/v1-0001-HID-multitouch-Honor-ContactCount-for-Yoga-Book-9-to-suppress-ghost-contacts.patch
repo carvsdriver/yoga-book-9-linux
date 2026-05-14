@@ -1,0 +1,57 @@
+From carvsdriver@gmail.com Wed May 13 00:00:00 2026
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Wed, 13 May 2026 00:00:00 +0000
+Subject: [PATCH] HID: multitouch: Honor ContactCount for Yoga Book 9 to suppress ghost contacts
+To: linux-input@vger.kernel.org
+Cc: jikos@kernel.org, bentiss@kernel.org
+
+The INGENIC 17EF:6161 firmware on the Lenovo Yoga Book 9 14IAH10
+does not clear stale contact slots when fingers are lifted.  Each
+HID report contains up to 10 finger slots, but only the first
+ContactCount slots represent valid contacts; the remaining slots
+retain TipSwitch=1 with positions from previous touches.
+
+Raw HID capture confirms this: across a 60-second capture with
+repeated multi-finger gestures, 90% of frames had more TipSwitch=1
+slots than the reported ContactCount.  The ContactCount field itself
+is always accurate.
+
+Add MT_QUIRK_CONTACT_CNT_ACCURATE to the MT_CLS_YOGABOOK9I class so
+the driver stops processing slots once ContactCount valid contacts
+have been consumed, discarding the stale ghost entries per HID
+specification section 17.  MT_QUIRK_NOT_SEEN_MEANS_UP (already in
+the class) ensures that any slot skipped by this guard is released
+via INPUT_MT_DROP_UNUSED at frame sync.
+
+Signed-off-by: Dave Carey <carvsdriver@gmail.com>
+Tested-by: Dave Carey <carvsdriver@gmail.com>
+---
+This follows commit 108ac841 ("HID: multitouch: Fix Yoga Book 9 14IAH10
+touchscreen misclassification"), applied to hid/for-next on 2026-05-12,
+which established MT_CLS_YOGABOOK9I and added MT_QUIRK_NOT_SEEN_MEANS_UP.
+
+That fix made the touchscreens fully functional.  With three or more
+fingers and repeated on/off gestures, ghost contacts then began appearing
+because the firmware leaves stale TipSwitch=1 data in slots beyond
+ContactCount.  The capture showed patterns like cc=1 with 7 active slots,
+or cc=3 with 8 active slots, consistently across all gesture cycles.
+ContactCount was always the correct count.  Verified ghost-free after this
+change across 6+ repeated three-finger swipe sequences.
+
+ drivers/hid/hid-multitouch.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 648201e..0495152 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -445,6 +445,7 @@
+ 		{ .name = MT_CLS_YOGABOOK9I,
+ 		.quirks = MT_QUIRK_NOT_SEEN_MEANS_UP |
+ 			MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_CONTACT_CNT_ACCURATE |
+ 			MT_QUIRK_FORCE_MULTI_INPUT |
+ 			MT_QUIRK_SEPARATE_APP_REPORT |
+ 			MT_QUIRK_HOVERING |
+--
+2.47.0
