@@ -1,0 +1,79 @@
+From 0214acbbc9758034b69db7a4960694ed948a9ccd Mon Sep 17 00:00:00 2001
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Fri, 15 May 2026 12:00:00 -0400
+Subject: [PATCH] HID: multitouch: Fix stale MT slots when contact count drops
+ to zero
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+To: linux-input@vger.kernel.org
+Cc: jikos@kernel.org,
+    bentiss@kernel.org
+
+The INGENIC 17EF:6161 touchscreen (Lenovo Yoga Book 9 14IAH10) reports
+HID_DG_CONTACTCOUNT=0 in the frame immediately following the last finger
+lift rather than omitting the frame entirely.  In mt_touch_report() the
+existing code only updates num_expected when contact_count is non-zero,
+so a zero contact count on the first packet of a new frame leaves
+num_expected at its previous value (e.g. 2 for a two-finger gesture).
+The sync check "num_received >= num_expected" then evaluates "0 >= 2"
+and never fires, preventing INPUT_MT_DROP_UNUSED from releasing the
+stale slots.  Those slots remain active in the kernel MT layer until the
+next touch, at which point they are released in a batch alongside the
+new contact — causing the userspace event consumer to miss the intervening
+finger-up sequence and corrupt its gesture session state.
+
+Fix by resetting num_expected to 0 when contact_count is zero and
+num_received is still 0 (i.e., this is the first and only packet of the
+frame, not a continuation packet in a multi-packet sequence).  With
+num_expected=0 the sync check "0 >= 0" fires immediately, calling
+input_mt_sync_frame() which drops the stale slots via INPUT_MT_DROP_UNUSED.
+
+The num_received==0 guard is critical: continuation packets in a
+multi-packet frame arrive after at least one contact has already been
+processed (num_received>0), so they are correctly excluded from this
+path and the existing multi-packet logic is unaffected.
+
+Signed-off-by: Dave Carey <carvsdriver@gmail.com>
+Tested-by: Dave Carey <carvsdriver@gmail.com>
+---
+This follows commit 108ac841 ("HID: multitouch: Fix Yoga Book 9 14IAH10
+touchscreen misclassification"), applied to hid/for-next on 2026-05-12.
+That commit established MT_CLS_YOGABOOK9I.
+
+This fix is independent of the companion ghost-contacts patch ("HID:
+multitouch: Honor ContactCount for Yoga Book 9 to suppress ghost contacts",
+sent 2026-05-14), which adds MT_QUIRK_CONTACT_CNT_ACCURATE to the same
+class.  Both apply cleanly on top of 108ac841.
+
+Tested on Lenovo Yoga Book 9 14IAH10 (83KJ).
+
+ drivers/hid/hid-multitouch.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index ec04dba..e91ba89 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -1336,6 +1336,18 @@ static void mt_touch_report(struct hid_device *hid,
+ 		/* A non 0 contact count always indicates a first packet */
+ 		else if (contact_count)
+ 			app->num_expected = contact_count;
++		/*
++		 * contact_count == 0 on the first packet of a new frame means
++		 * all contacts have lifted (the firmware sends an explicit zero
++		 * to signal all-up rather than simply omitting the frame).
++		 * Reset num_expected so that the sync check below fires and
++		 * INPUT_MT_DROP_UNUSED releases any stale slots.  This is safe
++		 * for multi-packet continuation frames because those arrive with
++		 * num_received > 0 (at least one contact was already processed
++		 * from the preceding first-packet in the same frame).
++		 */
++		else if (app->num_received == 0)
++			app->num_expected = 0;
+ 	}
+ 	app->prev_scantime = scantime;
+ 
+-- 
+2.54.0
+

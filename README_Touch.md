@@ -12,16 +12,16 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | Patch | List | Link |
 |-------|------|------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | Submitted 2026-05-14; awaiting review |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | Submitted 2026-05-15; awaiting review |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-13; awaiting review |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | Submitted 2026-05-15; awaiting review |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
 in kernel 7.1. The hid-multitouch misclassification fix (v2) is applied to
-hid/for-next and expected in the next merge window. The cdc-acm bulk-IN patch,
-the stale-slot fix, and the ghost contact fix are submitted and awaiting
-upstream review.
+hid/for-next and expected in the next merge window. All other patches are
+submitted and awaiting upstream review.
 
 ---
 
@@ -32,8 +32,8 @@ Three separate bugs were fixed:
    the USB bus ~4 times at ~19 s intervals before stabilising. Linux's `cdc-acm`
    driver failed to bind because the CDC data interface declares vendor-specific
    class (`0xff`), causing interface 0 to remain unbound and leaving the firmware
-   in a continuous reset loop. Fixed with two cdc-acm kernel patches: patch 0002
-   (`VENDOR_CLASS_DATA_IFACE` + `ALWAYS_POLL_CTRL` quirks) and patch 0003 (bulk-IN
+   in a continuous reset loop. Fixed with two cdc-acm kernel patches: patch 0004
+   (`VENDOR_CLASS_DATA_IFACE` + `ALWAYS_POLL_CTRL` quirks) and patch 0005 (bulk-IN
    polling to suppress a secondary ~55 s firmware watchdog). Touch becomes
    available ~60–80 s after boot due to the firmware's fixed reset sequence.
 
@@ -152,15 +152,15 @@ endpoint while a TTY device is held open; with it, polling starts immediately at
 `probe()` and resumes automatically after `port_shutdown()` and after system
 resume, keeping the notification endpoint watchdog suppressed.
 
-Changes in `cdc-acm.c` (patch 0002):
+Changes in `cdc-acm.c` (patch 0004):
 1. `acm_port_activate()` — skip ctrlurb submit (already running) when `ALWAYS_POLL_CTRL`
 2. `acm_port_shutdown()` — resubmit ctrlurb after port closes when `ALWAYS_POLL_CTRL`
 3. `acm_resume()` — submit ctrlurb on resume even without an open TTY
 4. `acm_probe()` — submit ctrlurb immediately after `dev_info("ttyACM%d")` when `ALWAYS_POLL_CTRL`
 
-### Bulk-IN Watchdog Fix (patch 0003)
+### Bulk-IN Watchdog Fix (patch 0005)
 
-After deploying patch 0002 a second watchdog was discovered: the firmware
+After deploying patch 0004 a second watchdog was discovered: the firmware
 monitors bulk-IN activity on interface 1 (the data endpoint, EP 0x81) in
 addition to the notification endpoint. With no TTY open, `cdc-acm` stops
 submitting read URBs after `port_shutdown()`. The firmware detects the idle
@@ -171,7 +171,7 @@ satisfies the notification watchdog but the firmware separately tracks whether
 EP 0x81 is being read. Patch 0003 adds `acm_submit_read_urbs()` calls to
 both `ALWAYS_POLL_CTRL` paths:
 
-Changes in `cdc-acm.c` (patch 0003):
+Changes in `cdc-acm.c` (patch 0005):
 5. `acm_probe()` — start bulk-IN polling (`acm_submit_read_urbs`) immediately at probe when `ALWAYS_POLL_CTRL`
 6. `acm_port_shutdown()` — restart bulk-IN polling after port close when `ALWAYS_POLL_CTRL`
 
@@ -204,19 +204,18 @@ Apply, build, and install:
 
 ```bash
 cd ~/kernel-src
-cp ~/projects/yoga9ibook/scripts/0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch .
-cp ~/projects/yoga9ibook/scripts/0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch .
-patch -p0 < 0002-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch
-patch -p4 < 0003-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch
+cp ~/projects/yoga9ibook/scripts/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch .
+cp ~/projects/yoga9ibook/scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch .
+patch -p4 < 0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch
+patch -p4 < 0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch
 
 # Build against the running kernel's headers
 make -C /usr/src/kernels/$(uname -r) M=$(pwd) modules
 
-# Install (remove the original .xz so it doesn't shadow the .zst)
+# Install to updates/ so depmod prefers our version over the stock copy
 zstd -f -19 cdc-acm.ko -o cdc-acm.ko.zst
-sudo mv /lib/modules/$(uname -r)/kernel/drivers/usb/class/cdc-acm.ko.xz \
-        ~/kernel-src/cdc-acm.ko.xz.orig
-sudo cp cdc-acm.ko.zst /lib/modules/$(uname -r)/kernel/drivers/usb/class/
+sudo install -d /lib/modules/$(uname -r)/updates
+sudo cp cdc-acm.ko.zst /lib/modules/$(uname -r)/updates/
 sudo depmod -a
 
 # Reload without rebooting
@@ -272,7 +271,7 @@ sudo udevadm control --reload-rules
 - `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
   — Kernel patch for `drivers/usb/class/cdc-acm.c` (bulk-IN polling for ALWAYS_POLL_CTRL); depends on 0004
 - `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch`
-  — Upstream submission patch for 0005 (clean diff against upstream master, proper authorship)
+  — Upstream submission (git format-patch, 8bit transfer encoding; submitted 2026-05-15)
 - `scripts/cdc-acm.c` — Patched source file (0004 + 0005 applied) for reference / rebuild
 - `scripts/ingenic-touch-init.py` — userspace CDC init fallback
 - `scripts/99-ingenic-touch-init.rules` — udev rule for fallback script
@@ -288,7 +287,8 @@ Submission: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdrive
 The commit also carries `Cc: stable@kernel.org` so stable backports (6.12.y, 6.6.y, etc.) are expected.
 Commit: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
 
-**Patch 0005** (bulk-IN fix) submitted 2026-05-14 to linux-usb@vger.kernel.org; awaiting review.
+**Patch 0005** (bulk-IN fix) submitted 2026-05-15 to linux-usb@vger.kernel.org; awaiting review.
+Message-ID: <20260515141940.751397-1-carvsdriver@gmail.com>
 Depends on patch 0004 (f58752ebcb35) and Wentao Guan's pending BIT-collision fix.
 
 ---
@@ -493,7 +493,7 @@ consumed, discarding the stale entries per HID specification section 17.
 `MT_QUIRK_NOT_SEEN_MEANS_UP` (already in the class) ensures slots skipped
 by this guard are released via `INPUT_MT_DROP_UNUSED` at frame sync.
 
-Submitted 2026-05-13 to linux-input@vger.kernel.org as a follow-up to v2;
+Submitted 2026-05-14 to linux-input@vger.kernel.org as a follow-up to v2;
 awaiting review.
 
 ### Result
@@ -535,12 +535,12 @@ collection, neutralizes Win8 blob / ContactMax / SurfaceSwitch / ButtonSwitch
 GET/SET_REPORT triggers, and retains Input Mode for ghost contact clearing.
 **Applied** to hid/for-next by Jiri Kosina 2026-05-12.
 
-Ghost contact patch (v1) submitted 2026-05-13 as a follow-up; depends on v2.
+Ghost contact patch (v1) submitted 2026-05-14 as a follow-up; depends on v2.
 
 Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
-Ghost contact patch: submitted 2026-05-13 to linux-input@vger.kernel.org
+Ghost contact patch: submitted 2026-05-14 to linux-input@vger.kernel.org
 
 ### Kernel Module Install (Until Patch Upstreamed)
 
