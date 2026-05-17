@@ -1,0 +1,133 @@
+From: Dave Carey <carvsdriver@gmail.com>
+Subject: Re: [PATCH] platform/x86/lenovo: Add Yoga Book 9 keyboard dock detection driver
+In-Reply-To: <9459f535-d140-a431-3f76-a5d8623f3e2d@linux.intel.com>
+References: <20260425132323.82809-1-carvsdriver@gmail.com>
+	<9459f535-d140-a431-3f76-a5d8623f3e2d@linux.intel.com>
+To: Ilpo Järvinen <ilpo.jarvinen@linux.intel.com>
+Cc: Hans de Goede <hdegoede@redhat.com>,
+    Pit Henrich <pithenrich2d@googlemail.com>,
+    Mark Pearson <mpearson-lenovo@squebb.ca>,
+    Derek J. Clark <derekjohn.clark@gmail.com>,
+    Armin Wolf <W_Armin@gmx.de>,
+    platform-driver-x86@vger.kernel.org,
+    linux-input@vger.kernel.org,
+    linux-kernel@vger.kernel.org
+
+On Tue, 28 Apr 2026 17:39:17 +0300, Ilpo Järvinen wrote:
+> On Sat, 25 Apr 2026, Dave Carey wrote:
+
+Thank you for the review. All points addressed in v2 below.
+
+> Please put this in depth explanation in own paragraph.
+> This seems mostly duplicate of what was said previously.
+> These two can be combined with the in depth explanation paragraph.
+> Please write this without bullet points.
+
+Commit message rewritten as prose. The hardware description, WMI
+mechanism, and BKBD encoding are now combined into a single explanatory
+paragraph. The functional summary (what the driver does) follows in a
+second paragraph without bullet points.
+
+> I don't think the functional description on this level is warranted in
+> the top comment.
+
+Top-of-file block comment trimmed to hardware context only. The
+functional description (query on probe, SW_TABLET_MODE mapping, sysfs
+attribute) has been removed from there; the comment now covers only the
+two WMI GUIDs and the BKBD encoding table, which are non-obvious from
+the code alone.
+
+> This interface has been deprecated.
+
+Done. v2 uses wmidev_block_query() with two arguments, returning
+union acpi_object * directly. This required registering both the event
+and query GUIDs in the id_table with context pointers (enum
+yb9_guid_type) so the query wdev is reachable from probe and the notify
+path. The event-device probe defers with -EPROBE_DEFER until the query
+device arrives.
+
+> Please use __free() instead of duplicating kfree()s.
+> When converting to __free(), don't use ... = NULL; pattern, instead place
+> the variable declaration mid-function as instructed in cleanup.h.
+
+Done. The obj declaration now uses __free(kfree) placed mid-function
+after the early-exit checks, per the cleanup.h guidance. Added
+linux/cleanup.h to the includes.
+
+> Can this literal be named with a define? Should it use FIELD_GET()?
+> (don't forget the header if you start to use FIELD_GET())
+
+Done. BKBD_MASK is now GENMASK(1, 0) and both extraction sites use
+FIELD_GET(BKBD_MASK, bkbd). Added linux/bitfield.h to the includes.
+
+> Unnecessary cast. And your types are a major mess between int and
+> unsigned types.
+
+Fixed. The query function returns int throughout (0-2 on success,
+-errno on error); the cast is gone. Local variables in yb9_kbdock_update
+are consistently int.
+
+> Please use reverse-xmas tree order.
+
+Fixed in yb9_kbdock_update(): tablet_mode is now declared before bkbd.
+
+> WARN_ON_ONCE() instead of just WARN_ON() in the sysfs show function.
+
+Done.
+
+> You didn't document unknown but return it (maybe it should return some
+> -Exx code instead?).
+
+The "unknown" fourth entry has been removed entirely. BKBD value 3 is
+now caught in yb9_kbdock_query() and returned as -EINVAL so it never
+reaches the sysfs show function or priv->bkbd. The show function uses
+WARN_ON_ONCE(bkbd >= ARRAY_SIZE(names)) and returns -EINVAL as
+suggested — this can only fire if there is a driver bug.
+
+> Missing include.
+
+Added linux/bitfield.h (FIELD_GET) and linux/cleanup.h (__free).
+
+> Normally these [DMI table] appear towards the end of the file.
+
+Moved to just before yb9_kbdock_probe().
+
+> Put the last two lines to one line.
+
+Done.
+
+> I wonder if this is similar physically to what is being added here:
+> https://lore.kernel.org/all/20260419102724.91451-1-pithenrich2d@gmail.com/
+> If yes, we may have to take another look at how to create the interface
+> for this.
+
+Pit Henrich's patch targets the ThinkPad X1 Fold 16 Gen 1 — also a
+Lenovo device with a magnetically-attached keyboard that docks to the
+display and changes between tablet and laptop mode, so the concept is
+physically similar.
+
+However, the two drivers differ in several meaningful ways:
+
+  * Different hardware families and kernel paths: the X1 Fold patch
+    extends thinkpad_acpi using an ACPI method (\\_SB.DEVD.GDST) and
+    the existing TP_HKEY_EV_TABLET_CHANGED hotkey path. The Yoga Book 9
+    driver is a standalone WMI driver using two separate WMI GUIDs.
+
+  * Different state cardinality: the X1 Fold has a binary
+    keyboard_attached_on_screen attribute because the keyboard is either
+    present or not. The Yoga Book 9 needs three states — detached,
+    docked on the top half of the bottom screen, or docked on the bottom
+    half — because the two docked positions select different screen
+    layouts that userspace needs to distinguish. A binary attribute
+    would lose that information.
+
+  * SW_TABLET_MODE: both drivers emit SW_TABLET_MODE=1 when the
+    keyboard is absent and SW_TABLET_MODE=0 when docked, consistent
+    with existing drivers in this subsystem.
+
+Given these differences the sysfs attribute semantics do not clash, but
+if a preferred naming convention is being established for keyboard-dock
+attributes across these devices I am happy to align with whatever is
+decided for the X1 Fold patch.
+
+Dave
