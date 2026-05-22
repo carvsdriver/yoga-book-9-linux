@@ -258,23 +258,18 @@ fi
 # --------------------------------------------------------------------------
 # 13. Restart touchpad daemon
 # --------------------------------------------------------------------------
-DAEMON_BIN="/usr/lib64/libexec/plasma-touchpad-daemon"
-DAEMON_LOG="/tmp/plasma-touchpad.log"
-
-if [ -x "${DAEMON_BIN}" ]; then
-    echo "==> Restarting plasma-touchpad-daemon..."
-    pkill -f plasma-touchpad-daemon 2>/dev/null || true
-    sleep 0.3
-    nohup "${DAEMON_BIN}" >>"${DAEMON_LOG}" 2>&1 &
-    DAEMON_PID=$!
+if systemctl --user cat plasma-touchpad.service &>/dev/null; then
+    echo "==> Restarting plasma-touchpad-daemon via systemd..."
+    systemctl --user restart plasma-touchpad.service
     sleep 0.5
-    if kill -0 "${DAEMON_PID}" 2>/dev/null; then
-        echo "    plasma-touchpad-daemon started (PID ${DAEMON_PID})"
+    if systemctl --user is-active --quiet plasma-touchpad.service; then
+        echo "    plasma-touchpad.service active"
     else
-        echo "    WARNING: plasma-touchpad-daemon exited immediately — check ${DAEMON_LOG}"
+        echo "    WARNING: plasma-touchpad.service failed to start"
+        systemctl --user status plasma-touchpad.service --no-pager || true
     fi
 else
-    echo "    Skipping daemon restart: ${DAEMON_BIN} not found"
+    echo "    Skipping daemon restart: plasma-touchpad.service not found"
 fi
 
 # --------------------------------------------------------------------------

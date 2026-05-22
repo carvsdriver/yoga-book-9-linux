@@ -52,7 +52,6 @@ static struct wmi_device *yb9_query_wdev;
 static DEFINE_MUTEX(yb9_query_lock);
 
 struct yb9_kbdock_priv {
-	struct wmi_device *query_wdev;
 	struct input_dev *input_dev;
 	unsigned int bkbd;
 };
@@ -97,10 +96,20 @@ static int yb9_kbdock_query(struct wmi_device *event_wdev,
 static void yb9_kbdock_update(struct wmi_device *wdev)
 {
 	struct yb9_kbdock_priv *priv = dev_get_drvdata(&wdev->dev);
+	struct wmi_device *qwdev;
 	int tablet_mode;
 	int bkbd;
 
-	bkbd = yb9_kbdock_query(wdev, priv->query_wdev);
+	mutex_lock(&yb9_query_lock);
+	qwdev = yb9_query_wdev;
+	if (qwdev)
+		get_device(&qwdev->dev);
+	mutex_unlock(&yb9_query_lock);
+	if (!qwdev)
+		return;
+
+	bkbd = yb9_kbdock_query(wdev, qwdev);
+	put_device(&qwdev->dev);
 	if (bkbd < 0)
 		return;
 
@@ -137,7 +146,10 @@ static struct attribute *yb9_kbdock_attrs[] = {
 	&dev_attr_keyboard_position.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(yb9_kbdock);
+
+static const struct attribute_group yb9_kbdock_group = {
+	.attrs = yb9_kbdock_attrs,
+};
 
 static const struct dmi_system_id yb9_kbdock_dmi_table[] = {
 	{
@@ -156,9 +168,12 @@ static int yb9_kbdock_probe(struct wmi_device *wdev, const void *ctx)
 	struct yb9_kbdock_priv *priv;
 	struct input_dev *input_dev;
 	struct wmi_device *qwdev;
+	int bkbd_init;
 	int err;
 
 	if (type == YB9_GUID_QUERY) {
+		if (!dmi_check_system(yb9_kbdock_dmi_table))
+			return -ENODEV;
 		mutex_lock(&yb9_query_lock);
 		yb9_query_wdev = wdev;
 		mutex_unlock(&yb9_query_lock);
@@ -170,17 +185,23 @@ static int yb9_kbdock_probe(struct wmi_device *wdev, const void *ctx)
 
 	mutex_lock(&yb9_query_lock);
 	qwdev = yb9_query_wdev;
+	if (qwdev)
+		get_device(&qwdev->dev);
 	mutex_unlock(&yb9_query_lock);
 	if (!qwdev)
 		return -EPROBE_DEFER;
 
 	priv = devm_kzalloc(&wdev->dev, sizeof(*priv), GFP_KERNEL);
-	if (!priv)
+	if (!priv) {
+		put_device(&qwdev->dev);
 		return -ENOMEM;
+	}
 
 	input_dev = devm_input_allocate_device(&wdev->dev);
-	if (!input_dev)
+	if (!input_dev) {
+		put_device(&qwdev->dev);
 		return -ENOMEM;
+	}
 
 	input_dev->name = "Lenovo Yoga Book 9 keyboard dock switch";
 	input_dev->phys = YB9_KBDOCK_EVENT_GUID "/input0";
@@ -188,17 +209,34 @@ static int yb9_kbdock_probe(struct wmi_device *wdev, const void *ctx)
 	input_dev->dev.parent = &wdev->dev;
 	input_set_capability(input_dev, EV_SW, SW_TABLET_MODE);
 
+	priv->input_dev = input_dev;
+	dev_set_drvdata(&wdev->dev, priv);
+
+	/*
+	 * Query the initial dock state and preset the switch bit before
+	 * input_register_device() so userspace never sees SW_TABLET_MODE = 0
+	 * for a detached keyboard on first open.
+	 */
+	bkbd_init = yb9_kbdock_query(wdev, qwdev);
+	put_device(&qwdev->dev);
+	if (bkbd_init >= 0) {
+		priv->bkbd = bkbd_init;
+		if (bkbd_init == BKBD_DETACHED)
+			__set_bit(SW_TABLET_MODE, input_dev->sw);
+	}
+
 	err = input_register_device(input_dev);
 	if (err) {
 		dev_err(&wdev->dev, "failed to register input device: %d\n", err);
 		return err;
 	}
 
-	priv->query_wdev = qwdev;
-	priv->input_dev = input_dev;
-	dev_set_drvdata(&wdev->dev, priv);
+	err = devm_device_add_group(&wdev->dev, &yb9_kbdock_group);
+	if (err) {
+		dev_err(&wdev->dev, "failed to add sysfs group: %d\n", err);
+		return err;
+	}
 
-	yb9_kbdock_update(wdev);
 	return 0;
 }
 
@@ -220,7 +258,6 @@ MODULE_DEVICE_TABLE(wmi, yb9_kbdock_wmi_id_table);
 static struct wmi_driver yb9_kbdock_driver = {
 	.driver = {
 		.name = "lenovo-yb9-kbdock",
-		.dev_groups = yb9_kbdock_groups,
 	},
 	.id_table = yb9_kbdock_wmi_id_table,
 	.probe    = yb9_kbdock_probe,

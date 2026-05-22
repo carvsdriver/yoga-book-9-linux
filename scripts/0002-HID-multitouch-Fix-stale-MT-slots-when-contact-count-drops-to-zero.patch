@@ -31,29 +31,40 @@ path and the existing multi-packet logic is unaffected.
 Signed-off-by: Dave Carey <carvsdriver@gmail.com>
 Tested-by: Dave Carey <carvsdriver@gmail.com>
 ---
- drivers/hid/hid-multitouch.c | 12 ++++++++++++
- 1 file changed, 12 insertions(+)
+ drivers/hid/hid-multitouch.c | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
 index ec04dbafb..f1a2b3c4d5 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -1336,6 +1336,18 @@ static void mt_touch_report(struct hid_device *hid,
- 		/* A non 0 contact count always indicates a first packet */
- 		else if (contact_count)
- 			app->num_expected = contact_count;
-+		/*
-+		 * contact_count == 0 on the first packet of a new frame means
-+		 * all contacts have lifted (the firmware sends an explicit zero
-+		 * to signal all-up rather than simply omitting the frame).
-+		 * Reset num_expected so that the sync check below fires and
-+		 * INPUT_MT_DROP_UNUSED releases any stale slots.  This is safe
-+		 * for multi-packet continuation frames because those arrive with
-+		 * num_received > 0 (at least one contact was already processed
-+		 * from the preceding first-packet in the same frame).
-+		 */
-+		else if (app->num_received == 0)
-+			app->num_expected = 0;
+@@ -1321,21 +1321,18 @@ static void mt_touch_report(struct hid_device *hid,
+ 	 * Includes multi-packet support where subsequent
+ 	 * packets are sent with zero contactcount.
+ 	 */
+-	if (contact_count >= 0) {
++	if (contact_count > 0)
++		app->num_expected = contact_count;
++	else if (app->num_received == 0 && app->prev_scantime != scantime) {
+ 		/*
++		 * New multi-report frame:
++		 *
+ 		 * For Win8 PTPs the first packet (td->num_received == 0) may
+ 		 * have a contactcount of 0 if there only is a button event.
+-		 * We double check that this is not a continuation packet
+-		 * of a possible multi-packet frame be checking that the
+-		 * timestamp has changed.
++		 *
++		 * Some other devices use a sentinel frame with 0 to release all contacts
+ 		 */
+-		if ((app->quirks & MT_QUIRK_WIN8_PTP_BUTTONS) &&
+-		    app->num_received == 0 &&
+-		    app->prev_scantime != scantime)
+-			app->num_expected = contact_count;
+-		/* A non 0 contact count always indicates a first packet */
+-		else if (contact_count)
+-			app->num_expected = contact_count;
++		app->num_expected = 0;
  	}
  	app->prev_scantime = scantime;
 
