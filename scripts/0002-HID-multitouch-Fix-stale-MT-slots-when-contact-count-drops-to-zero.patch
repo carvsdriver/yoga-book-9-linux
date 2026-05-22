@@ -31,6 +31,12 @@ path and the existing multi-packet logic is unaffected.
 Signed-off-by: Dave Carey <carvsdriver@gmail.com>
 Tested-by: Dave Carey <carvsdriver@gmail.com>
 ---
+v2:
+- Restructured contact_count block per Benjamin Tissoires' review:
+  replace three-branch if/else-if/else-if with a cleaner two-branch
+  form, dropping the outer if (contact_count >= 0) wrapper
+- Add prev_scantime != scantime guard to the zero-contact sentinel case
+
  drivers/hid/hid-multitouch.c | 15 ++++++++-------
  1 file changed, 8 insertions(+), 7 deletions(-)
 

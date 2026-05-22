@@ -12,9 +12,9 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | Patch | List | Link |
 |-------|------|------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | Submitted 2026-05-15; awaiting review |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Accepted to usb-testing** 2026-05-22 (Greg KH) — pending usb-next |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | Submitted 2026-05-15; awaiting review |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
@@ -287,9 +287,12 @@ Submission: https://lore.kernel.org/linux-usb/20260402182950.389016-1-carvsdrive
 The commit also carries `Cc: stable@kernel.org` so stable backports (6.12.y, 6.6.y, etc.) are expected.
 Commit: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023
 
-**Patch 0005** (bulk-IN fix) submitted 2026-05-15 to linux-usb@vger.kernel.org; awaiting review.
+**Patch 0005** (bulk-IN fix) submitted 2026-05-15 to linux-usb@vger.kernel.org.
 Message-ID: <20260515141940.751397-1-carvsdriver@gmail.com>
 Depends on patch 0004 (f58752ebcb35) and Wentao Guan's pending BIT-collision fix.
+
+**Accepted** into Greg Kroah-Hartman's `usb-testing` branch 2026-05-22.
+Will move to `usb-next` after testing; expect in linux-next within 24 hours.
 
 ---
 
@@ -541,6 +544,13 @@ Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
 Ghost contact patch: submitted 2026-05-14 to linux-input@vger.kernel.org
+
+Stale-slots fix: v1 submitted 2026-05-15, v2 submitted 2026-05-22 (restructured
+contact_count block per bentiss review; adds prev_scantime guard).
+v1 Message-ID: <20260515175253.873796-1-carvsdriver@gmail.com>
+v2 Message-ID: <20260522111527.69428-1-carvsdriver@gmail.com>
+Note: v2 subject sent as "[PATCH 2/5]" due to embedded Subject: header; threading
+is correct (In-Reply-To v1).
 
 ### Kernel Module Install (Until Patch Upstreamed)
 
