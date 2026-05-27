@@ -12,11 +12,11 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | Patch | List | Link |
 |-------|------|------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Accepted to usb-testing** 2026-05-22 (Greg KH) — pending usb-next |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v5 submitted 2026-05-27; awaiting review |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v5 submitted 2026-05-27 — Message-ID: &lt;20260527122701.242907-1-carvsdriver@gmail.com&gt; |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
@@ -808,7 +808,7 @@ Submitted to `platform-driver-x86@vger.kernel.org` as part of
 `drivers/platform/x86/lenovo/`.
 
 v4 Message-ID: `<20260521144034.282419-1-carvsdriver@gmail.com>`
-v5 submitted 2026-05-27; awaiting review.
+v5 Message-ID: `<20260527122701.242907-1-carvsdriver@gmail.com>`
 
 ### Files
 
