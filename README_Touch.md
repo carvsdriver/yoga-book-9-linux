@@ -16,6 +16,7 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v5 submitted 2026-05-27; awaiting review |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
@@ -47,6 +48,13 @@ Three separate bugs were fixed:
    turns into a pointer input node. Every finger tap generates a duplicate
    mouse-click event that steals compositor focus from the on-screen keyboard.
    Fixed with a udev rule.
+
+4. **Keyboard dock not reported to userspace** — The detachable Bluetooth
+   keyboard magnetically attaches to the bottom screen in one of two positions.
+   The EC tracks state in a 2-bit BKBD field and signals changes via WMI notify
+   0xEB. Without a driver, userspace (e.g., KDE Plasma, screen-rotation daemons)
+   has no way to know whether the keyboard is present or what orientation to
+   use. Fixed with the `lenovo-yb9-kbdock` kernel driver.
 
 ---
 
@@ -695,6 +703,116 @@ sudo libinput list-devices | grep -A4 "Emulated Touchpad"
 ### Files
 
 - `scripts/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/`
+
+---
+
+## Part 4: Keyboard Dock Detection
+
+### Discovery
+
+The Yoga Book 9 ships with a detachable Bluetooth keyboard that magnetically
+attaches to the bottom (secondary) screen in one of two positions: top half or
+bottom half. The keyboard position determines the effective screen layout and
+whether the device is in "tablet mode" (keyboard detached) or "laptop mode"
+(keyboard present).
+
+Without a driver, `SW_TABLET_MODE` is never reported and no sysfs attribute
+exposes the dock state. KDE Plasma and screen-rotation daemons rely on
+`SW_TABLET_MODE` to decide whether to show the on-screen keyboard and what
+screen orientation to apply.
+
+ACPI tracing revealed that the EC tracks attachment state in a 2-bit field
+called `BKBD` on the WM10 ACPI device (`_UID "GMZN"`), and signals changes via
+WMI notify 0xEB. The embedded BMOF data (WQDD, 20705 bytes, decoded with
+`bmfdec`) documents two relevant WMI interfaces:
+
+- **LENOVO_BTKBD_EVENT** (event GUID `806BD2A2-177B-481D-BFB5-3BA0BB4A2285`):
+  `WmiDataId(1) uint32 Status` — the ACPI `_WED(0xEB)` method returns `EC.BKBD`
+  directly as an integer. No separate query needed in the notify path.
+
+- **LENOVO_FEATURE_STATUS_DATA** (block GUID `E7F300FA-21CD-4003-ADAC-2696135982E6`):
+  returns an 8-byte buffer `{uint32 IDs=0x00060000, uint32 Status=BKBD}`.
+  Used on probe and resume to read the initial dock state.
+
+### BKBD Encoding
+
+| Value | Meaning |
+|-------|---------|
+| 0 | Keyboard detached — `SW_TABLET_MODE=1` |
+| 1 | Keyboard docked on top half of bottom screen — `SW_TABLET_MODE=0` |
+| 2 | Keyboard docked on bottom half of bottom screen — `SW_TABLET_MODE=0` |
+| 3 | Reserved (not observed in practice) |
+
+### Kernel Driver
+
+The `lenovo-yb9-kbdock` driver registers two WMI drivers:
+
+- **Event driver** — bound to LENOVO_BTKBD_EVENT GUID; owns the input device
+  (`SW_TABLET_MODE`) and the sysfs attribute. Receives BKBD directly in the
+  notify callback's event data integer.
+- **Block driver** — bound to LENOVO_FEATURE_STATUS_DATA GUID; provides
+  `wmidev_block_query()` access for probe-time and resume-time state reads.
+
+Either driver can probe first. Both probe callbacks check whether the other has
+already probed and fire the initial BKBD read only when both are ready (mutex
+protected). State is re-read on resume from suspend or hibernation.
+
+The sysfs attribute `keyboard_position` performs a live query on every read;
+it does not cache the last-reported value.
+
+### Kernel Module Build
+
+The driver is not yet upstream. Build out-of-tree against the running kernel:
+
+```bash
+cd ~/projects/yoga9ibook
+
+# Build
+make -C /lib/modules/$(uname -r)/build M=$(pwd)/scripts \
+    KBUILD_EXTRA_SYMBOLS=$(pwd)/scripts/Module.symvers \
+    obj-m=lenovo-yb9-kbdock.o
+
+# Install to updates/ so it takes precedence if upstreamed later
+sudo install -m 644 scripts/lenovo-yb9-kbdock.ko \
+    /lib/modules/$(uname -r)/updates/
+sudo depmod -a
+
+# Load
+sudo modprobe lenovo-yb9-kbdock
+```
+
+Or load directly without installing:
+
+```bash
+sudo insmod scripts/lenovo-yb9-kbdock.ko
+```
+
+### Verify
+
+```bash
+# Check both WMI drivers bound
+ls /sys/bus/wmi/drivers/ | grep yb9
+
+# Read current dock position (0=detached, 1=top-half, 2=bottom-half)
+cat /sys/bus/wmi/drivers/lenovo-yb9-kbdock/*/keyboard_position
+
+# Check SW_TABLET_MODE (1=detached/tablet, 0=docked/laptop)
+evtest /dev/input/by-id/*yoga-book*
+# or
+cat /sys/class/input/*/device/name | grep -i "yoga book 9 keyboard"
+```
+
+### Upstream Submission
+
+Submitted to `platform-driver-x86@vger.kernel.org` as part of
+`drivers/platform/x86/lenovo/`.
+
+v4 Message-ID: `<20260521144034.282419-1-carvsdriver@gmail.com>`
+v5 submitted 2026-05-27; awaiting review.
+
+### Files
+
+- `scripts/lenovo-yb9-kbdock.c` — v5 driver source (two WMI drivers)
 
 ---
 

@@ -2,154 +2,50 @@
 /*
  * Lenovo Yoga Book 9 keyboard-dock detection
  *
- * Reports SW_TABLET_MODE based on keyboard attachment state and exposes the
- * raw dock position via sysfs.
+ * The Yoga Book 9 ships with a detachable Bluetooth keyboard that magnetically
+ * attaches to the bottom screen in one of two positions.  The EC tracks
+ * attachment state in a 2-bit field called BKBD and signals changes via WMI
+ * event 0xEB on the WM10 ACPI device (_UID "GMZN").
+ *
+ * BKBD values:
+ *   0 = keyboard detached
+ *   1 = keyboard docked on the top half of the bottom screen
+ *   2 = keyboard docked on the bottom half of the bottom screen
+ *   3 = reserved / not observed
+ *
+ * Two WMI interfaces are used (documented in embedded BMOF, WQDD, 20705 bytes):
+ *
+ *   LENOVO_BTKBD_EVENT (event GUID, 806BD2A2-...)
+ *     WmiDataId(1) uint32 Status — _WED(0xEB) returns EC.BKBD directly.
+ *     The notify callback receives BKBD as an integer; no separate query needed.
+ *
+ *   LENOVO_FEATURE_STATUS_DATA (block GUID, E7F300FA-...)
+ *     WmiDataId(1) uint32 IDs   = 0x00060000 (feature selector)
+ *     WmiDataId(2) uint32 Status = BKBD value
+ *     Used on probe and resume to read initial state.
+ *
+ * SW_TABLET_MODE=1 is reported when the keyboard is detached;
+ * SW_TABLET_MODE=0 when docked in either position (keyboard present).
+ * The raw BKBD value is exposed via the sysfs attribute "keyboard_position".
  *
  * Copyright (C) 2026 Dave Carey <carvsdriver@gmail.com>
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/acpi.h>
-#include <linux/bitfield.h>
-#include <linux/cleanup.h>
 #include <linux/dmi.h>
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/pm.h>
 #include <linux/wmi.h>
 
-/*
- * WM10 ACPI device (_UID "GMZN") exposes two relevant WMI GUIDs:
- *   YB9_KBDOCK_EVENT_GUID — notify ID 0xEB fires on attachment state change.
- *   YB9_KBDOCK_QUERY_GUID — object "AF" (WQAF), returns an 8-byte buffer
- *                           whose upper four bytes hold the BKBD value.
- *
- * BKBD encoding:
- *   0 (BKBD_DETACHED)    — keyboard detached       → SW_TABLET_MODE = 1
- *   1 (BKBD_TOP_HALF)    — docked, top half        → SW_TABLET_MODE = 0
- *   2 (BKBD_BOTTOM_HALF) — docked, bottom half     → SW_TABLET_MODE = 0
- *   3                    — reserved; treated as an error
- */
-#define YB9_KBDOCK_EVENT_GUID		"806BD2A2-177B-481D-BFB5-3BA0BB4A2285"
-#define YB9_KBDOCK_QUERY_GUID		"E7F300FA-21CD-4003-ADAC-2696135982E6"
-#define YB9_KBDOCK_QUERY_INSTANCE	0
+#define YB9_KBDOCK_EVENT_GUID	"806BD2A2-177B-481D-BFB5-3BA0BB4A2285"
+#define YB9_KBDOCK_QUERY_GUID	"E7F300FA-21CD-4003-ADAC-2696135982E6"
 
+/* BKBD encoding */
 #define BKBD_DETACHED		0
 #define BKBD_TOP_HALF		1
 #define BKBD_BOTTOM_HALF	2
-#define BKBD_MASK		GENMASK(1, 0)
-
-/* Distinguish the two GUIDs via the id_table context field. */
-enum yb9_guid_type { YB9_GUID_EVENT, YB9_GUID_QUERY };
-
-/*
- * Both GUIDs are children of the same ACPI device (WM10).  Store the query
- * WMI device globally so the event-device probe and notify path can reach it
- * via wmidev_block_query().  Protected by yb9_query_lock during probe/remove.
- */
-static struct wmi_device *yb9_query_wdev;
-static DEFINE_MUTEX(yb9_query_lock);
-
-struct yb9_kbdock_priv {
-	struct input_dev *input_dev;
-	unsigned int bkbd;
-};
-
-/* Returns 0–2 on success, -errno on error. */
-static int yb9_kbdock_query(struct wmi_device *event_wdev,
-			     struct wmi_device *query_wdev)
-{
-	u32 bkbd;
-
-	union acpi_object *obj __free(kfree) =
-		wmidev_block_query(query_wdev, YB9_KBDOCK_QUERY_INSTANCE);
-	if (!obj) {
-		dev_warn(&event_wdev->dev, "WQAF query returned NULL\n");
-		return -EIO;
-	}
-
-	/*
-	 * WQAF returns an 8-byte buffer: bytes [0..3] = LFID (0x00060000),
-	 * bytes [4..7] = BKBD value.  Guard against short buffers.
-	 */
-	if (obj->type == ACPI_TYPE_BUFFER && obj->buffer.length >= 8)
-		memcpy(&bkbd, obj->buffer.pointer + 4, sizeof(bkbd));
-	else if (obj->type == ACPI_TYPE_INTEGER)
-		bkbd = obj->integer.value;
-	else {
-		dev_warn(&event_wdev->dev,
-			 "WQAF: unexpected result type %d len %u\n",
-			 obj->type, obj->type == ACPI_TYPE_BUFFER ? obj->buffer.length : 0);
-		return -EIO;
-	}
-
-	bkbd = FIELD_GET(BKBD_MASK, bkbd);
-	if (bkbd == 3) {
-		dev_warn(&event_wdev->dev, "BKBD value 3 is reserved\n");
-		return -EINVAL;
-	}
-
-	return bkbd;
-}
-
-static void yb9_kbdock_update(struct wmi_device *wdev)
-{
-	struct yb9_kbdock_priv *priv = dev_get_drvdata(&wdev->dev);
-	struct wmi_device *qwdev;
-	int tablet_mode;
-	int bkbd;
-
-	mutex_lock(&yb9_query_lock);
-	qwdev = yb9_query_wdev;
-	if (qwdev)
-		get_device(&qwdev->dev);
-	mutex_unlock(&yb9_query_lock);
-	if (!qwdev)
-		return;
-
-	bkbd = yb9_kbdock_query(wdev, qwdev);
-	put_device(&qwdev->dev);
-	if (bkbd < 0)
-		return;
-
-	priv->bkbd = bkbd;
-	tablet_mode = (bkbd == BKBD_DETACHED) ? 1 : 0;
-
-	input_report_switch(priv->input_dev, SW_TABLET_MODE, tablet_mode);
-	input_sync(priv->input_dev);
-
-	dev_dbg(&wdev->dev, "BKBD=%u tablet_mode=%d\n", bkbd, tablet_mode);
-}
-
-static void yb9_kbdock_notify(struct wmi_device *wdev, union acpi_object *data)
-{
-	yb9_kbdock_update(wdev);
-}
-
-static ssize_t keyboard_position_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
-{
-	static const char * const names[] = {
-		"detached", "top-half", "bottom-half",
-	};
-	struct yb9_kbdock_priv *priv = dev_get_drvdata(dev);
-	unsigned int bkbd = priv->bkbd;
-
-	if (WARN_ON_ONCE(bkbd >= ARRAY_SIZE(names)))
-		return -EINVAL;
-	return sysfs_emit(buf, "%u (%s)\n", bkbd, names[bkbd]);
-}
-static DEVICE_ATTR_RO(keyboard_position);
-
-static struct attribute *yb9_kbdock_attrs[] = {
-	&dev_attr_keyboard_position.attr,
-	NULL,
-};
-
-static const struct attribute_group yb9_kbdock_group = {
-	.attrs = yb9_kbdock_attrs,
-};
 
 static const struct dmi_system_id yb9_kbdock_dmi_table[] = {
 	{
@@ -162,109 +58,266 @@ static const struct dmi_system_id yb9_kbdock_dmi_table[] = {
 	{ }
 };
 
-static int yb9_kbdock_probe(struct wmi_device *wdev, const void *ctx)
-{
-	enum yb9_guid_type type = (enum yb9_guid_type)(uintptr_t)ctx;
-	struct yb9_kbdock_priv *priv;
-	struct input_dev *input_dev;
-	struct wmi_device *qwdev;
-	int bkbd_init;
-	int err;
+/*
+ * Shared state between the event and block WMI drivers.  Protected by lock.
+ * The lock may be held across wmidev_query_block() calls (which can sleep);
+ * block_remove() acquires the lock before clearing block_wdev, ensuring
+ * block_wdev remains valid for the duration of any in-progress query.
+ */
+static struct {
+	struct mutex lock;
+	struct input_dev *input_dev;	/* set by event probe */
+	struct wmi_device *block_wdev;	/* set by block probe */
+} yb9;
 
-	if (type == YB9_GUID_QUERY) {
-		if (!dmi_check_system(yb9_kbdock_dmi_table))
-			return -ENODEV;
-		mutex_lock(&yb9_query_lock);
-		yb9_query_wdev = wdev;
-		mutex_unlock(&yb9_query_lock);
-		return 0;
+/*
+ * Read BKBD from the block device via wmidev_block_query().
+ * Returns 0-3 on success, -errno on failure.  Caller must hold yb9.lock.
+ */
+static int yb9_kbdock_query_locked(struct device *log_dev)
+{
+	union acpi_object *obj;
+	u32 bkbd;
+
+	if (!yb9.block_wdev)
+		return -ENODEV;
+
+	obj = wmidev_block_query(yb9.block_wdev, 0);
+	if (!obj) {
+		dev_warn(log_dev, "WQAF returned NULL\n");
+		return -EIO;
 	}
+
+	/*
+	 * LENOVO_FEATURE_STATUS_DATA: 8-byte buffer {IDs=0x00060000, Status=BKBD}.
+	 */
+	if (obj->type == ACPI_TYPE_BUFFER && obj->buffer.length >= 8) {
+		memcpy(&bkbd, obj->buffer.pointer + 4, sizeof(bkbd));
+		bkbd &= 0x3;
+	} else if (obj->type == ACPI_TYPE_INTEGER) {
+		bkbd = obj->integer.value & 0x3;
+	} else {
+		dev_warn(log_dev, "WQAF: unexpected type %d len %u\n",
+			 obj->type,
+			 obj->type == ACPI_TYPE_BUFFER ? obj->buffer.length : 0);
+		kfree(obj);
+		return -EIO;
+	}
+
+	kfree(obj);
+	return (int)bkbd;
+}
+
+/* Report SW_TABLET_MODE from BKBD.  Caller must hold yb9.lock. */
+static void yb9_kbdock_report_locked(int bkbd, struct device *log_dev)
+{
+	int tablet = (bkbd == BKBD_DETACHED) ? 1 : 0;
+
+	input_report_switch(yb9.input_dev, SW_TABLET_MODE, tablet);
+	input_sync(yb9.input_dev);
+	dev_dbg(log_dev, "BKBD=%d SW_TABLET_MODE=%d\n", bkbd, tablet);
+}
+
+/* ------------------------------------------------------------------
+ * sysfs
+ * ------------------------------------------------------------------ */
+
+static ssize_t keyboard_position_show(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	int bkbd;
+
+	mutex_lock(&yb9.lock);
+	bkbd = yb9_kbdock_query_locked(dev);
+	mutex_unlock(&yb9.lock);
+
+	if (bkbd < 0)
+		return bkbd;
+	return sysfs_emit(buf, "%u\n", (unsigned int)bkbd);
+}
+static DEVICE_ATTR_RO(keyboard_position);
+
+static struct attribute *yb9_kbdock_attrs[] = {
+	&dev_attr_keyboard_position.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(yb9_kbdock);
+
+/* ------------------------------------------------------------------
+ * Event WMI driver — LENOVO_BTKBD_EVENT
+ * ------------------------------------------------------------------ */
+
+static void yb9_kbdock_notify(struct wmi_device *wdev, union acpi_object *data)
+{
+	u32 bkbd;
+
+	/*
+	 * _WED(0xEB) returns EC.BKBD directly as an integer
+	 * (LENOVO_BTKBD_EVENT WmiDataId(1) uint32 Status).
+	 */
+	if (!data || data->type != ACPI_TYPE_INTEGER) {
+		dev_warn(&wdev->dev, "unexpected event data type %d\n",
+			 data ? data->type : -1);
+		return;
+	}
+	bkbd = data->integer.value & 0x3;
+
+	mutex_lock(&yb9.lock);
+	if (yb9.input_dev)
+		yb9_kbdock_report_locked(bkbd, &wdev->dev);
+	mutex_unlock(&yb9.lock);
+}
+
+static int yb9_kbdock_event_probe(struct wmi_device *wdev, const void *ctx)
+{
+	struct input_dev *input_dev;
+	int bkbd, err;
 
 	if (!dmi_check_system(yb9_kbdock_dmi_table))
 		return -ENODEV;
 
-	mutex_lock(&yb9_query_lock);
-	qwdev = yb9_query_wdev;
-	if (qwdev)
-		get_device(&qwdev->dev);
-	mutex_unlock(&yb9_query_lock);
-	if (!qwdev)
-		return -EPROBE_DEFER;
-
-	priv = devm_kzalloc(&wdev->dev, sizeof(*priv), GFP_KERNEL);
-	if (!priv) {
-		put_device(&qwdev->dev);
-		return -ENOMEM;
-	}
-
 	input_dev = devm_input_allocate_device(&wdev->dev);
-	if (!input_dev) {
-		put_device(&qwdev->dev);
+	if (!input_dev)
 		return -ENOMEM;
-	}
 
 	input_dev->name = "Lenovo Yoga Book 9 keyboard dock switch";
 	input_dev->phys = YB9_KBDOCK_EVENT_GUID "/input0";
 	input_dev->id.bustype = BUS_HOST;
-	input_dev->dev.parent = &wdev->dev;
 	input_set_capability(input_dev, EV_SW, SW_TABLET_MODE);
 
-	priv->input_dev = input_dev;
-	dev_set_drvdata(&wdev->dev, priv);
-
-	/*
-	 * Query the initial dock state and preset the switch bit before
-	 * input_register_device() so userspace never sees SW_TABLET_MODE = 0
-	 * for a detached keyboard on first open.
-	 */
-	bkbd_init = yb9_kbdock_query(wdev, qwdev);
-	put_device(&qwdev->dev);
-	if (bkbd_init >= 0) {
-		priv->bkbd = bkbd_init;
-		if (bkbd_init == BKBD_DETACHED)
-			__set_bit(SW_TABLET_MODE, input_dev->sw);
-	}
-
 	err = input_register_device(input_dev);
-	if (err) {
-		dev_err(&wdev->dev, "failed to register input device: %d\n", err);
+	if (err)
 		return err;
-	}
 
-	err = devm_device_add_group(&wdev->dev, &yb9_kbdock_group);
-	if (err) {
-		dev_err(&wdev->dev, "failed to add sysfs group: %d\n", err);
-		return err;
+	mutex_lock(&yb9.lock);
+	yb9.input_dev = input_dev;
+	/* Read initial state if the block device has already probed. */
+	if (yb9.block_wdev) {
+		bkbd = yb9_kbdock_query_locked(&wdev->dev);
+		if (bkbd >= 0)
+			yb9_kbdock_report_locked(bkbd, &wdev->dev);
 	}
+	mutex_unlock(&yb9.lock);
 
 	return 0;
 }
 
-static void yb9_kbdock_remove(struct wmi_device *wdev)
+static void yb9_kbdock_event_remove(struct wmi_device *wdev)
 {
-	mutex_lock(&yb9_query_lock);
-	if (wdev == yb9_query_wdev)
-		yb9_query_wdev = NULL;
-	mutex_unlock(&yb9_query_lock);
+	mutex_lock(&yb9.lock);
+	yb9.input_dev = NULL;
+	mutex_unlock(&yb9.lock);
 }
 
-static const struct wmi_device_id yb9_kbdock_wmi_id_table[] = {
-	{ .guid_string = YB9_KBDOCK_EVENT_GUID, .context = (void *)YB9_GUID_EVENT },
-	{ .guid_string = YB9_KBDOCK_QUERY_GUID, .context = (void *)YB9_GUID_QUERY },
+static int yb9_kbdock_resume(struct device *dev)
+{
+	int bkbd;
+
+	mutex_lock(&yb9.lock);
+	if (yb9.input_dev && yb9.block_wdev) {
+		bkbd = yb9_kbdock_query_locked(dev);
+		if (bkbd >= 0)
+			yb9_kbdock_report_locked(bkbd, dev);
+	}
+	mutex_unlock(&yb9.lock);
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(yb9_kbdock_pm_ops, NULL, yb9_kbdock_resume);
+
+static const struct wmi_device_id yb9_kbdock_event_id_table[] = {
+	{ .guid_string = YB9_KBDOCK_EVENT_GUID },
 	{ }
 };
-MODULE_DEVICE_TABLE(wmi, yb9_kbdock_wmi_id_table);
+MODULE_DEVICE_TABLE(wmi, yb9_kbdock_event_id_table);
 
-static struct wmi_driver yb9_kbdock_driver = {
+static struct wmi_driver yb9_kbdock_event_driver = {
 	.driver = {
 		.name = "lenovo-yb9-kbdock",
+		.dev_groups = yb9_kbdock_groups,
+		.pm = pm_sleep_ptr(&yb9_kbdock_pm_ops),
 	},
-	.id_table = yb9_kbdock_wmi_id_table,
-	.probe    = yb9_kbdock_probe,
-	.remove   = yb9_kbdock_remove,
-	.notify   = yb9_kbdock_notify,
+	.id_table = yb9_kbdock_event_id_table,
+	.no_singleton = true,
+	.probe = yb9_kbdock_event_probe,
+	.remove = yb9_kbdock_event_remove,
+	.notify = yb9_kbdock_notify,
 };
-module_wmi_driver(yb9_kbdock_driver);
+
+/* ------------------------------------------------------------------
+ * Block WMI driver — LENOVO_FEATURE_STATUS_DATA
+ * ------------------------------------------------------------------ */
+
+static int yb9_kbdock_block_probe(struct wmi_device *wdev, const void *ctx)
+{
+	int bkbd;
+
+	if (!dmi_check_system(yb9_kbdock_dmi_table))
+		return -ENODEV;
+
+	mutex_lock(&yb9.lock);
+	yb9.block_wdev = wdev;
+	/* Read initial state if the event device has already probed. */
+	if (yb9.input_dev) {
+		bkbd = yb9_kbdock_query_locked(&wdev->dev);
+		if (bkbd >= 0)
+			yb9_kbdock_report_locked(bkbd, &wdev->dev);
+	}
+	mutex_unlock(&yb9.lock);
+	return 0;
+}
+
+static void yb9_kbdock_block_remove(struct wmi_device *wdev)
+{
+	mutex_lock(&yb9.lock);
+	yb9.block_wdev = NULL;
+	mutex_unlock(&yb9.lock);
+}
+
+static const struct wmi_device_id yb9_kbdock_block_id_table[] = {
+	{ .guid_string = YB9_KBDOCK_QUERY_GUID },
+	{ }
+};
+
+static struct wmi_driver yb9_kbdock_block_driver = {
+	.driver = {
+		.name = "lenovo-yb9-kbdock-block",
+	},
+	.id_table = yb9_kbdock_block_id_table,
+	.no_singleton = true,
+	.probe = yb9_kbdock_block_probe,
+	.remove = yb9_kbdock_block_remove,
+};
+
+/* ------------------------------------------------------------------
+ * Module init / exit
+ * ------------------------------------------------------------------ */
+
+static int __init yb9_kbdock_init(void)
+{
+	int ret;
+
+	mutex_init(&yb9.lock);
+
+	ret = wmi_driver_register(&yb9_kbdock_event_driver);
+	if (ret)
+		return ret;
+
+	ret = wmi_driver_register(&yb9_kbdock_block_driver);
+	if (ret) {
+		wmi_driver_unregister(&yb9_kbdock_event_driver);
+		return ret;
+	}
+	return 0;
+}
+module_init(yb9_kbdock_init);
+
+static void __exit yb9_kbdock_exit(void)
+{
+	wmi_driver_unregister(&yb9_kbdock_block_driver);
+	wmi_driver_unregister(&yb9_kbdock_event_driver);
+}
+module_exit(yb9_kbdock_exit);
 
 MODULE_AUTHOR("Dave Carey <carvsdriver@gmail.com>");
 MODULE_DESCRIPTION("Lenovo Yoga Book 9 keyboard dock detection");
