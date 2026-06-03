@@ -15,7 +15,7 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review — Message-ID: &lt;CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com&gt; |
 | `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v5 submitted 2026-05-27 — Message-ID: &lt;20260527122701.242907-1-carvsdriver@gmail.com&gt; |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
@@ -552,6 +552,7 @@ Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
 Ghost contact patch: submitted 2026-05-14 to linux-input@vger.kernel.org
+Message-ID: <CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com>
 
 Stale-slots fix: v1 submitted 2026-05-15, v2 submitted 2026-05-22 (restructured
 contact_count block per bentiss review; adds prev_scantime guard).
