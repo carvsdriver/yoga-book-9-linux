@@ -43,9 +43,37 @@ fi
 
 echo "Using accelerometers: $ACCEL and $ACCEL2"
 
+# kbdock sysfs attribute: non-zero means keyboard is physically docked.
+# When docked the device is used as a laptop; accelerometer rotation is locked
+# to normal so that sudden movements don't cause spurious screen rotations.
+KBDOCK_SYSFS=$(ls /sys/bus/wmi/devices/806BD2A2-177B-481D-BFB5-3BA0BB4A2285-*/keyboard_position 2>/dev/null | head -1)
+if [ -z "$KBDOCK_SYSFS" ]; then
+    echo "WARNING: kbdock sysfs not found; rotation will not be suppressed while keyboard is docked"
+fi
+
 PREV=""
 
 while true; do
+    # While the keyboard is docked, lock rotation to normal (laptop orientation)
+    # and skip the accelerometer entirely.  This prevents transient accel spikes
+    # during movement from briefly rotating the display.
+    if [ -n "$KBDOCK_SYSFS" ]; then
+        dock_pos=$(cat "$KBDOCK_SYSFS" 2>/dev/null)
+        if [ "${dock_pos:-0}" != "0" ]; then
+            if [ "normal" != "$PREV" ]; then
+                echo "Rotating to: normal (keyboard docked, pos=$dock_pos)"
+                apply_rotation \
+                    output.eDP-1.rotation.inverted \
+                    output.eDP-1.position.0,0 \
+                    output.eDP-2.rotation.none \
+                    output.eDP-2.position.0,1125
+                PREV="normal"
+            fi
+            sleep 1
+            continue
+        fi
+    fi
+
     X=$(cat "$ACCEL/in_accel_x_raw" 2>/dev/null)
     Y=$(cat "$ACCEL/in_accel_y_raw" 2>/dev/null)
     Y2=$(cat "$ACCEL2/in_accel_y_raw" 2>/dev/null)

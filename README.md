@@ -496,8 +496,8 @@ will be correct and the script will become a no-op.
 | 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | pending review | rebuild until merged |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v7 pending (v6 reviewed by Ilpo Järvinen 2026-06-09) | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v7 pending (unchanged from v6) | skipped automatically once merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v7 submitted 2026-06-09 — cover &lt;20260609212631.925943-1-carvsdriver@gmail.com&gt; | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v7 submitted 2026-06-09 — 1/2 &lt;20260609212631.925943-2-carvsdriver@gmail.com&gt; | skipped automatically once merged |
 
 ---
 
@@ -573,11 +573,12 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v5 submitted 2026-05-27; v6 2-patch series submitted 2026-06-08.
-> Patch 1/2 adds a DMI blocklist to `lenovo-ymc` to prevent a duplicate
-> `SW_TABLET_MODE` input node (identified during v5 review by Hans de Goede);
-> patch 2/2 is the dock driver unchanged from v5.
-> Cover letter: `<20260608215205.678182-1-carvsdriver@gmail.com>`
+> **Upstream:** v7 2-patch series submitted 2026-06-09.
+> v7 addresses Ilpo Järvinen's review of v6 (wmidev_query_block, __free(kfree),
+> GENMASK/FIELD_GET, guard(mutex), sync_locked helper, kerneldoc, headers).
+> v6 submitted 2026-06-08; v5 submitted 2026-05-27 (Hans de Goede review
+> prompted the lenovo-ymc companion patch).
+> Cover letter: `<20260609212631.925943-1-carvsdriver@gmail.com>`
 
 ---
 
