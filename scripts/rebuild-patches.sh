@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# rebuild-patches.sh — Rebuild and reinstall hid-multitouch, cdc-acm, and
-# yb9-kbdock kernel patches for the running kernel.
+# rebuild-patches.sh — Rebuild and reinstall hid-multitouch, cdc-acm,
+# yb9-kbdock, and lenovo-ymc kernel patches for the running kernel.
 #
 # Patches applied:
 #   0001  hid-multitouch  — Yoga Book 9 touchscreen descriptor fixup
@@ -11,6 +11,8 @@
 #   0005  cdc-acm         — start bulk-IN polling when ALWAYS_POLL_CTRL is set
 #   0006  yb9-kbdock      — keyboard dock detection driver (new file; copied
 #                           from lenovo-yb9-kbdock.c in this directory)
+#   0007  lenovo-ymc      — return -ENODEV on Yoga Book 9 (yb9-kbdock owns
+#                           SW_TABLET_MODE on this hardware)
 #
 # Usage:
 #   cd ~/projects/yoga9ibook/scripts
@@ -29,6 +31,7 @@ HID_PATCH3="${SCRIPT_DIR}/0003-HID-multitouch-Suppress-cycling-ghost-contacts-fo
 CDC_PATCH="${SCRIPT_DIR}/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
 CDC_PATCH3="${SCRIPT_DIR}/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
 KBDOCK_SRC="${SCRIPT_DIR}/lenovo-yb9-kbdock.c"
+YMC_PATCH="${SCRIPT_DIR}/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch"
 
 echo "==> Rebuilding patches for kernel ${KVER}"
 
@@ -105,6 +108,10 @@ tar xf "${TARBALL}" --strip-components=4 -C "${BUILD_DIR}" \
     "linux-${KVER_SRC}/drivers/usb/class/cdc-acm.c" \
     "linux-${KVER_SRC}/drivers/usb/class/cdc-acm.h"
 
+tar xf "${TARBALL}" --strip-components=5 -C "${BUILD_DIR}" \
+    "linux-${KVER_SRC}/drivers/platform/x86/lenovo/ymc.c" \
+    "linux-${KVER_SRC}/drivers/platform/x86/lenovo/ideapad-laptop.h"
+
 # yb9-kbdock is a new driver not present in the upstream tree; copy from here.
 cp "${KBDOCK_SRC}" "${BUILD_DIR}/yb9-kbdock.c"
 
@@ -112,7 +119,8 @@ cp "${KBDOCK_SRC}" "${BUILD_DIR}/yb9-kbdock.c"
 # 5. Write Makefile
 # --------------------------------------------------------------------------
 cat > "${BUILD_DIR}/Makefile" << 'EOF'
-obj-m := hid-multitouch.o cdc-acm.o yb9-kbdock.o
+obj-m := hid-multitouch.o cdc-acm.o yb9-kbdock.o lenovo-ymc.o
+lenovo-ymc-y := ymc.o
 EOF
 
 # --------------------------------------------------------------------------
@@ -148,6 +156,16 @@ echo "==> Applying cdc-acm patch (0005)..."
 # git format-patch: a/drivers/usb/class/cdc-acm.c → strip 4 components
 pushd "${BUILD_DIR}" >/dev/null
 patch -p4 < "${CDC_PATCH3}"
+popd >/dev/null
+
+echo "==> Applying lenovo-ymc patch (0007)..."
+# git format-patch: a/drivers/platform/x86/lenovo/ymc.c → strip 5 components
+pushd "${BUILD_DIR}" >/dev/null
+if grep -q "lenovo_ymc_nosupport_dmi_table" ymc.c; then
+    echo "    Already present in upstream source — skipping 0007."
+else
+    patch -p5 < "${YMC_PATCH}"
+fi
 popd >/dev/null
 
 # --------------------------------------------------------------------------
@@ -192,6 +210,15 @@ zstd -f -19 yb9-kbdock.ko -o yb9-kbdock.ko.zst
 sudo cp yb9-kbdock.ko.zst "/lib/modules/${KVER}/extra/yb9-kbdock.ko.zst"
 popd >/dev/null
 
+# --------------------------------------------------------------------------
+# 10.5. Install lenovo-ymc
+# --------------------------------------------------------------------------
+echo "==> Installing lenovo-ymc.ko.zst..."
+pushd "${BUILD_DIR}" >/dev/null
+zstd -f -19 lenovo-ymc.ko -o lenovo-ymc.ko.zst
+sudo cp lenovo-ymc.ko.zst "/lib/modules/${KVER}/updates/lenovo-ymc.ko.zst"
+popd >/dev/null
+
 # Remove stale extra/ copies — depmod prefers updates/ over extra/ and kernel/.
 for mod in hid-multitouch cdc-acm; do
     stale="/lib/modules/${KVER}/extra/${mod}.ko.zst"
@@ -226,6 +253,20 @@ sudo modprobe -r yb9_kbdock lenovo_yb9_kbdock 2>/dev/null || true
 sudo modprobe yb9_kbdock \
     && echo "    yb9_kbdock loaded" \
     || echo "    WARNING: yb9_kbdock load failed — reboot required"
+
+# Only reload lenovo_ymc if the unpatched version is currently bound to a
+# WMI device.  Reloading the patched version (which returns -ENODEV) is
+# unnecessary and triggers a brief rfkill disruption via the ideapad notifier
+# chain, temporarily disabling WiFi and Bluetooth.
+if ls /sys/bus/wmi/drivers/lenovo-ymc/ 2>/dev/null | grep -q .; then
+    echo "    lenovo_ymc is bound — reloading patched version."
+    sudo modprobe -r lenovo_ymc 2>/dev/null || true
+    sudo modprobe lenovo_ymc \
+        && echo "    lenovo_ymc loaded (patched)" \
+        || echo "    WARNING: lenovo_ymc load failed — reboot required"
+else
+    echo "    lenovo_ymc already unbound (patched) — skipping reload."
+fi
 
 # Force a full USB re-enumeration of the INGENIC device.  A simple
 # modprobe cycle is not enough: the firmware sends a persistent ghost

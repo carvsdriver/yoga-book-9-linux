@@ -496,6 +496,8 @@ will be correct and the script will become a no-op.
 | 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | pending review | rebuild until merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v7 pending (v6 reviewed by Ilpo Järvinen 2026-06-09) | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v7 pending (unchanged from v6) | skipped automatically once merged |
 
 ---
 
@@ -571,8 +573,11 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream (0005):** `scripts/0005-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch`
-> — full in-tree patch with `Kconfig`/`Makefile` entries; staged locally, not yet submitted.
+> **Upstream:** v5 submitted 2026-05-27; v6 2-patch series submitted 2026-06-08.
+> Patch 1/2 adds a DMI blocklist to `lenovo-ymc` to prevent a duplicate
+> `SW_TABLET_MODE` input node (identified during v5 review by Hans de Goede);
+> patch 2/2 is the dock driver unchanged from v5.
+> Cover letter: `<20260608215205.678182-1-carvsdriver@gmail.com>`
 
 ---
 
@@ -982,8 +987,9 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
 | `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch` | cdc-acm bulk-IN patch upstream submission (submitted 2026-05-15) |
 | `scripts/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
-| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` |
-| `scripts/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (upstream format) |
+| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v5/v6 — unchanged) |
+| `scripts/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (v6 series patch 2/2; v5 submitted 2026-05-27) |
+| `scripts/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist returning -ENODEV on Yoga Book 9 to prevent duplicate SW_TABLET_MODE node (v6 series patch 1/2) |
 
 ### HID-BPF (Alternative to Kernel Patch)
 

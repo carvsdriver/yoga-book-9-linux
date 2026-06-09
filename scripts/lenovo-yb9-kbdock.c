@@ -32,15 +32,21 @@
  */
 
 #include <linux/acpi.h>
+#include <linux/bitfield.h>
+#include <linux/cleanup.h>
 #include <linux/dmi.h>
 #include <linux/input.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pm.h>
+#include <linux/slab.h>
 #include <linux/wmi.h>
 
 #define YB9_KBDOCK_EVENT_GUID	"806BD2A2-177B-481D-BFB5-3BA0BB4A2285"
 #define YB9_KBDOCK_QUERY_GUID	"E7F300FA-21CD-4003-ADAC-2696135982E6"
+
+/* 2-bit EC field encoding the keyboard dock position */
+#define BKBD_FIELD		GENMASK(1, 0)
 
 /* BKBD encoding */
 #define BKBD_DETACHED		0
@@ -65,47 +71,47 @@ static const struct dmi_system_id yb9_kbdock_dmi_table[] = {
  * block_wdev remains valid for the duration of any in-progress query.
  */
 static struct {
-	struct mutex lock;
+	struct mutex lock; /* protects input_dev and block_wdev */
 	struct input_dev *input_dev;	/* set by event probe */
 	struct wmi_device *block_wdev;	/* set by block probe */
 } yb9;
 
-/*
- * Read BKBD from the block device via wmidev_block_query().
- * Returns 0-3 on success, -errno on failure.  Caller must hold yb9.lock.
+/**
+ * yb9_kbdock_query_locked() - Read BKBD from the block device.
+ * @log_dev: Device for logging.
+ *
+ * Context: Caller must hold yb9.lock.
+ * Returns: 0-3 on success, -errno on failure.
  */
 static int yb9_kbdock_query_locked(struct device *log_dev)
 {
-	union acpi_object *obj;
+	struct wmi_buffer out = {};
+	void *data __free(kfree) = NULL;
 	u32 bkbd;
+	int ret;
 
 	if (!yb9.block_wdev)
 		return -ENODEV;
 
-	obj = wmidev_block_query(yb9.block_wdev, 0);
-	if (!obj) {
-		dev_warn(log_dev, "WQAF returned NULL\n");
-		return -EIO;
+	ret = wmidev_query_block(yb9.block_wdev, 0, &out);
+	if (ret) {
+		dev_warn(log_dev, "WQAF failed: %d\n", ret);
+		return ret;
 	}
+
+	data = out.data;
 
 	/*
 	 * LENOVO_FEATURE_STATUS_DATA: 8-byte buffer {IDs=0x00060000, Status=BKBD}.
+	 * BKBD is at bytes 4-7.
 	 */
-	if (obj->type == ACPI_TYPE_BUFFER && obj->buffer.length >= 8) {
-		memcpy(&bkbd, obj->buffer.pointer + 4, sizeof(bkbd));
-		bkbd &= 0x3;
-	} else if (obj->type == ACPI_TYPE_INTEGER) {
-		bkbd = obj->integer.value & 0x3;
-	} else {
-		dev_warn(log_dev, "WQAF: unexpected type %d len %u\n",
-			 obj->type,
-			 obj->type == ACPI_TYPE_BUFFER ? obj->buffer.length : 0);
-		kfree(obj);
+	if (out.length < 8) {
+		dev_warn(log_dev, "WQAF: buffer too short (%zu)\n", out.length);
 		return -EIO;
 	}
 
-	kfree(obj);
-	return (int)bkbd;
+	memcpy(&bkbd, (u8 *)data + 4, sizeof(bkbd));
+	return (int)FIELD_GET(BKBD_FIELD, bkbd);
 }
 
 /* Report SW_TABLET_MODE from BKBD.  Caller must hold yb9.lock. */
@@ -118,6 +124,19 @@ static void yb9_kbdock_report_locked(int bkbd, struct device *log_dev)
 	dev_dbg(log_dev, "BKBD=%d SW_TABLET_MODE=%d\n", bkbd, tablet);
 }
 
+/* Read BKBD and report if both WMI devices are ready.  Caller must hold yb9.lock. */
+static void yb9_kbdock_sync_locked(struct device *log_dev)
+{
+	int bkbd;
+
+	if (!yb9.input_dev || !yb9.block_wdev)
+		return;
+
+	bkbd = yb9_kbdock_query_locked(log_dev);
+	if (bkbd >= 0)
+		yb9_kbdock_report_locked(bkbd, log_dev);
+}
+
 /* ------------------------------------------------------------------
  * sysfs
  * ------------------------------------------------------------------ */
@@ -127,9 +146,8 @@ static ssize_t keyboard_position_show(struct device *dev,
 {
 	int bkbd;
 
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	bkbd = yb9_kbdock_query_locked(dev);
-	mutex_unlock(&yb9.lock);
 
 	if (bkbd < 0)
 		return bkbd;
@@ -160,18 +178,17 @@ static void yb9_kbdock_notify(struct wmi_device *wdev, union acpi_object *data)
 			 data ? data->type : -1);
 		return;
 	}
-	bkbd = data->integer.value & 0x3;
+	bkbd = FIELD_GET(BKBD_FIELD, data->integer.value);
 
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	if (yb9.input_dev)
 		yb9_kbdock_report_locked(bkbd, &wdev->dev);
-	mutex_unlock(&yb9.lock);
 }
 
 static int yb9_kbdock_event_probe(struct wmi_device *wdev, const void *ctx)
 {
 	struct input_dev *input_dev;
-	int bkbd, err;
+	int err;
 
 	if (!dmi_check_system(yb9_kbdock_dmi_table))
 		return -ENODEV;
@@ -189,37 +206,22 @@ static int yb9_kbdock_event_probe(struct wmi_device *wdev, const void *ctx)
 	if (err)
 		return err;
 
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	yb9.input_dev = input_dev;
-	/* Read initial state if the block device has already probed. */
-	if (yb9.block_wdev) {
-		bkbd = yb9_kbdock_query_locked(&wdev->dev);
-		if (bkbd >= 0)
-			yb9_kbdock_report_locked(bkbd, &wdev->dev);
-	}
-	mutex_unlock(&yb9.lock);
-
+	yb9_kbdock_sync_locked(&wdev->dev);
 	return 0;
 }
 
 static void yb9_kbdock_event_remove(struct wmi_device *wdev)
 {
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	yb9.input_dev = NULL;
-	mutex_unlock(&yb9.lock);
 }
 
 static int yb9_kbdock_resume(struct device *dev)
 {
-	int bkbd;
-
-	mutex_lock(&yb9.lock);
-	if (yb9.input_dev && yb9.block_wdev) {
-		bkbd = yb9_kbdock_query_locked(dev);
-		if (bkbd >= 0)
-			yb9_kbdock_report_locked(bkbd, dev);
-	}
-	mutex_unlock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
+	yb9_kbdock_sync_locked(dev);
 	return 0;
 }
 
@@ -250,28 +252,19 @@ static struct wmi_driver yb9_kbdock_event_driver = {
 
 static int yb9_kbdock_block_probe(struct wmi_device *wdev, const void *ctx)
 {
-	int bkbd;
-
 	if (!dmi_check_system(yb9_kbdock_dmi_table))
 		return -ENODEV;
 
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	yb9.block_wdev = wdev;
-	/* Read initial state if the event device has already probed. */
-	if (yb9.input_dev) {
-		bkbd = yb9_kbdock_query_locked(&wdev->dev);
-		if (bkbd >= 0)
-			yb9_kbdock_report_locked(bkbd, &wdev->dev);
-	}
-	mutex_unlock(&yb9.lock);
+	yb9_kbdock_sync_locked(&wdev->dev);
 	return 0;
 }
 
 static void yb9_kbdock_block_remove(struct wmi_device *wdev)
 {
-	mutex_lock(&yb9.lock);
+	guard(mutex)(&yb9.lock);
 	yb9.block_wdev = NULL;
-	mutex_unlock(&yb9.lock);
 }
 
 static const struct wmi_device_id yb9_kbdock_block_id_table[] = {

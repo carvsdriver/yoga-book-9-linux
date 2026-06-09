@@ -16,13 +16,16 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review — Message-ID: &lt;CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com&gt; |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v5 submitted 2026-05-27 — Message-ID: &lt;20260527122701.242907-1-carvsdriver@gmail.com&gt; |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v7 series patch 1/2 pending submission — v6 Message-ID: &lt;20260608215205.678182-2-carvsdriver@gmail.com&gt; |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v7 series patch 2/2 pending submission — v6 cover: &lt;20260608215205.678182-1-carvsdriver@gmail.com&gt; |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
 in kernel 7.1. The hid-multitouch misclassification fix (v2) is applied to
-hid/for-next and expected in the next merge window. All other patches are
-submitted and awaiting upstream review.
+hid/for-next and expected in the next merge window. The keyboard dock driver
+(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v6 2-patch series
+on 2026-06-08; v5 of the dock driver was submitted 2026-05-27 and reviewed by
+Hans de Goede, whose feedback prompted the lenovo-ymc companion patch.
 
 ---
 
@@ -803,17 +806,62 @@ evtest /dev/input/by-id/*yoga-book*
 cat /sys/class/input/*/device/name | grep -i "yoga book 9 keyboard"
 ```
 
+### lenovo-ymc SW_TABLET_MODE Conflict
+
+Discovered during v5 review by Hans de Goede. `lenovo-ymc` — the upstream WMI
+driver that fires EC triggers in response to Yoga Mode Control events — also
+creates an input node advertising `SW_TABLET_MODE` on the Yoga Book 9.
+`yb9-kbdock` creates the same capability, leaving two `SW=2` nodes in
+`/proc/bus/input/devices`.
+
+For input switches, the capability bit carries semantic meaning independent of
+events: GNOME reads the `SW_TABLET_MODE` state at login from every node that
+advertises the bit. Two nodes causes incorrect behavior (GNOME's mode detection
+is not idempotent across multiple sources).
+
+**Fix:** Add a DMI blocklist in `lenovo_ymc_probe()` for product name `83KJ`
+(Yoga Book 9 14IAH10). When the DMI table matches, probe returns `-ENODEV` and
+the WMI driver never binds; `lenovo_ymc_notify()` is never registered. No
+collateral damage: the `ymc_ec_trigger` EC write — the only other action taken on
+a YMC event — is gated by a separate DMI table in `ideapad-laptop.c` that already
+excludes the 83KJ, making it a no-op on this hardware regardless.
+
+Patch file: `scripts/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch`
+
+`rebuild-patches.sh` extracts `ymc.c` from the kernel source tarball, applies
+0007, builds `lenovo-ymc.ko`, installs it to `updates/`, and reloads the module.
+The patch application is guarded: if `lenovo_ymc_nosupport_dmi_table` is already
+present (i.e., the fix has landed upstream), the patch step is skipped.
+
 ### Upstream Submission
 
 Submitted to `platform-driver-x86@vger.kernel.org` as part of
 `drivers/platform/x86/lenovo/`.
 
-v4 Message-ID: `<20260521144034.282419-1-carvsdriver@gmail.com>`
-v5 Message-ID: `<20260527122701.242907-1-carvsdriver@gmail.com>`
+**v4** (kbdock only) — Message-ID: `<20260521144034.282419-1-carvsdriver@gmail.com>`
+
+**v5** (kbdock only) — Message-ID: `<20260527122701.242907-1-carvsdriver@gmail.com>`
+  - Reviewed by Hans de Goede; identified SW_TABLET_MODE conflict with lenovo-ymc.
+
+**v6** (2-patch series) — submitted 2026-06-08; reviewed by Ilpo Järvinen
+  - Cover letter Message-ID: `<20260608215205.678182-1-carvsdriver@gmail.com>`
+  - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
+    Message-ID: `<20260608215205.678182-2-carvsdriver@gmail.com>`
+  - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
+    (no code changes from v5; reposted as part of series)
+    Message-ID: `<20260608215205.678182-3-carvsdriver@gmail.com>`
+  - Review: GENMASK/FIELD_GET, guard(mutex), wmidev_query_block, __free(kfree),
+    sync_locked helper, kerneldoc style → addressed in v7
+
+**v7** (2-patch series) — pending submission
+  - Patch 1/2: `lenovo-ymc`: unchanged from v6
+  - Patch 2/2: `lenovo-yb9-kbdock`: addresses all Ilpo Järvinen review feedback
+  - Submission patches: `~/drivers/yb9-kbdock-submission/v7/`
 
 ### Files
 
-- `scripts/lenovo-yb9-kbdock.c` — v5 driver source (two WMI drivers)
+- `scripts/lenovo-yb9-kbdock.c` — v5/v6 driver source (two WMI drivers, unchanged)
+- `scripts/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` — v6 patch 1/2: DMI blocklist in lenovo-ymc
 
 ---
 
