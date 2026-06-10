@@ -33,7 +33,9 @@
 
 #include <linux/acpi.h>
 #include <linux/bitfield.h>
+#include <linux/bits.h>
 #include <linux/cleanup.h>
+#include <linux/dev_printk.h>
 #include <linux/dmi.h>
 #include <linux/input.h>
 #include <linux/module.h>
@@ -74,7 +76,9 @@ static struct {
 	struct mutex lock; /* protects input_dev and block_wdev */
 	struct input_dev *input_dev;	/* set by event probe */
 	struct wmi_device *block_wdev;	/* set by block probe */
-} yb9;
+} yb9 = {
+	.lock = __MUTEX_INITIALIZER(yb9.lock),
+};
 
 /**
  * yb9_kbdock_query_locked() - Read BKBD from the block device.
@@ -86,7 +90,6 @@ static struct {
 static int yb9_kbdock_query_locked(struct device *log_dev)
 {
 	struct wmi_buffer out = {};
-	void *data __free(kfree) = NULL;
 	u32 bkbd;
 	int ret;
 
@@ -99,7 +102,7 @@ static int yb9_kbdock_query_locked(struct device *log_dev)
 		return ret;
 	}
 
-	data = out.data;
+	u8 *data __free(kfree) = out.data;
 
 	/*
 	 * LENOVO_FEATURE_STATUS_DATA: 8-byte buffer {IDs=0x00060000, Status=BKBD}.
@@ -110,8 +113,8 @@ static int yb9_kbdock_query_locked(struct device *log_dev)
 		return -EIO;
 	}
 
-	memcpy(&bkbd, (u8 *)data + 4, sizeof(bkbd));
-	return (int)FIELD_GET(BKBD_FIELD, bkbd);
+	memcpy(&bkbd, data + 4, sizeof(bkbd));
+	return FIELD_GET(BKBD_FIELD, bkbd);
 }
 
 /* Report SW_TABLET_MODE from BKBD.  Caller must hold yb9.lock. */
@@ -148,10 +151,9 @@ static ssize_t keyboard_position_show(struct device *dev,
 
 	guard(mutex)(&yb9.lock);
 	bkbd = yb9_kbdock_query_locked(dev);
-
 	if (bkbd < 0)
 		return bkbd;
-	return sysfs_emit(buf, "%u\n", (unsigned int)bkbd);
+	return sysfs_emit(buf, "%d\n", bkbd);
 }
 static DEVICE_ATTR_RO(keyboard_position);
 
@@ -289,8 +291,6 @@ static struct wmi_driver yb9_kbdock_block_driver = {
 static int __init yb9_kbdock_init(void)
 {
 	int ret;
-
-	mutex_init(&yb9.lock);
 
 	ret = wmi_driver_register(&yb9_kbdock_event_driver);
 	if (ret)

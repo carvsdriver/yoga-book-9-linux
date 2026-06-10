@@ -16,18 +16,21 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review — Message-ID: &lt;CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com&gt; |
-| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v7 submitted 2026-06-09 — Message-ID: &lt;20260609212631.925943-2-carvsdriver@gmail.com&gt; |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v7 submitted 2026-06-09 — cover: &lt;20260609212631.925943-1-carvsdriver@gmail.com&gt; |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v8 submitted 2026-06-10 — Message-ID: &lt;20260610155340.342949-2-carvsdriver@gmail.com&gt; |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v8 submitted 2026-06-10 — cover: &lt;20260610155340.342949-1-carvsdriver@gmail.com&gt; |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
 in kernel 7.1. The hid-multitouch misclassification fix (v2) is applied to
 hid/for-next and expected in the next merge window. The keyboard dock driver
-(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v7 2-patch series
-on 2026-06-09 (cover: &lt;20260609212631.925943-1-carvsdriver@gmail.com&gt;).
-v6 was submitted 2026-06-08 and reviewed by Ilpo Järvinen (7 items addressed in v7).
-v5 of the dock driver was submitted 2026-05-27 and reviewed by Hans de Goede,
-whose feedback prompted the lenovo-ymc companion patch.
+(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v8 2-patch series
+on 2026-06-10 (cover: &lt;20260610155340.342949-1-carvsdriver@gmail.com&gt;).
+v8 addresses Ilpo Järvinen's 9-item v7 review (bits.h, dev_printk.h, static
+mutex init, wmidev_query_block min_size, u8 * pointer, FIELD_GET cast, blank
+line, sysfs_emit format).  v7 submitted 2026-06-09 (wmidev_query_block,
+__free(kfree), GENMASK/FIELD_GET, guard(mutex), sync_locked helper).
+v6 submitted 2026-06-08; v5 submitted 2026-05-27 (Hans de Goede review
+prompted the lenovo-ymc companion patch).
 
 ---
 
