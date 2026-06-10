@@ -52,6 +52,10 @@ if [ -z "$KBDOCK_SYSFS" ]; then
 fi
 
 PREV=""
+PENDING_ORI=""
+PENDING_COUNT=0
+DEBOUNCE_COUNT=3  # consecutive same-orientation readings required before rotating
+ROTATE_THRESHOLD=3  # minimum normalized accel units to leave current orientation (tune up to increase dead zone)
 
 while true; do
     # While the keyboard is docked, lock rotation to normal (laptop orientation)
@@ -91,46 +95,74 @@ while true; do
        ( [ "$Y" -gt "0" ] && [ "$Y2" -lt "0" ] ); then
         ORI="tent"
     elif [ "$AY" -gt "$AX" ]; then
-        [ "$Y" -lt "0" ] && ORI="normal" || ORI="inverted"
+        # Portrait: require Y to exceed ROTATE_THRESHOLD to avoid rotating at
+        # slight tilts (e.g. resting in lap at a small angle).
+        if [ "$Y" -lt "-$ROTATE_THRESHOLD" ]; then
+            ORI="normal"
+        elif [ "$Y" -gt "$ROTATE_THRESHOLD" ]; then
+            ORI="inverted"
+        else
+            ORI="${PREV:-normal}"  # dead zone — hold current orientation
+        fi
     else
-        [ "$X" -lt "0" ] && ORI="right" || ORI="left"
+        if [ "$X" -lt "-$ROTATE_THRESHOLD" ]; then
+            ORI="right"
+        elif [ "$X" -gt "$ROTATE_THRESHOLD" ]; then
+            ORI="left"
+        else
+            ORI="${PREV:-normal}"
+        fi
     fi
 
-    if [ "$ORI" != "$PREV" ]; then
-        echo "Rotating to: $ORI"
-        case $ORI in
-            normal)
-                apply_rotation \
-                    output.eDP-1.rotation.inverted \
-                    output.eDP-1.position.0,0 \
-                    output.eDP-2.rotation.none \
-                    output.eDP-2.position.0,1125 ;;
-            inverted)
-                apply_rotation \
-                    output.eDP-1.rotation.none \
-                    output.eDP-1.position.0,1125 \
-                    output.eDP-2.rotation.inverted \
-                    output.eDP-2.position.0,0 ;;
-            right)
-                apply_rotation \
-                    output.eDP-1.rotation.left \
-                    output.eDP-1.position.0,0 \
-                    output.eDP-2.rotation.right \
-                    output.eDP-2.position.1125,0 ;;
-            left)
-                apply_rotation \
-                    output.eDP-1.rotation.right \
-                    output.eDP-1.position.1125,0 \
-                    output.eDP-2.rotation.left \
-                    output.eDP-2.position.0,0 ;;
-            tent)
-                apply_rotation \
-                    output.eDP-1.rotation.none \
-                    output.eDP-1.position.0,0 \
-                    output.eDP-2.rotation.none \
-                    output.eDP-2.position.0,0 ;;
-        esac
-        PREV=$ORI
+    if [ "$ORI" = "$PREV" ]; then
+        PENDING_ORI=""
+        PENDING_COUNT=0
+    else
+        if [ "$ORI" = "$PENDING_ORI" ]; then
+            PENDING_COUNT=$((PENDING_COUNT + 1))
+        else
+            PENDING_ORI="$ORI"
+            PENDING_COUNT=1
+        fi
+
+        if [ "$PENDING_COUNT" -ge "$DEBOUNCE_COUNT" ]; then
+            echo "Rotating to: $ORI"
+            case $ORI in
+                normal)
+                    apply_rotation \
+                        output.eDP-1.rotation.inverted \
+                        output.eDP-1.position.0,0 \
+                        output.eDP-2.rotation.none \
+                        output.eDP-2.position.0,1125 ;;
+                inverted)
+                    apply_rotation \
+                        output.eDP-1.rotation.none \
+                        output.eDP-1.position.0,1125 \
+                        output.eDP-2.rotation.inverted \
+                        output.eDP-2.position.0,0 ;;
+                right)
+                    apply_rotation \
+                        output.eDP-1.rotation.left \
+                        output.eDP-1.position.0,0 \
+                        output.eDP-2.rotation.right \
+                        output.eDP-2.position.1125,0 ;;
+                left)
+                    apply_rotation \
+                        output.eDP-1.rotation.right \
+                        output.eDP-1.position.1125,0 \
+                        output.eDP-2.rotation.left \
+                        output.eDP-2.position.0,0 ;;
+                tent)
+                    apply_rotation \
+                        output.eDP-1.rotation.none \
+                        output.eDP-1.position.0,0 \
+                        output.eDP-2.rotation.none \
+                        output.eDP-2.position.0,0 ;;
+            esac
+            PREV=$ORI
+            PENDING_ORI=""
+            PENDING_COUNT=0
+        fi
     fi
 
     sleep 1
