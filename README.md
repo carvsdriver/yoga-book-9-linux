@@ -496,8 +496,8 @@ will be correct and the script will become a no-op.
 | 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | pending review | rebuild until merged |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v8 submitted 2026-06-10 — cover &lt;20260610155340.342949-1-carvsdriver@gmail.com&gt; | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v8 submitted 2026-06-10 — 1/2 &lt;20260610155340.342949-2-carvsdriver@gmail.com&gt; | skipped automatically once merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v9 submitted 2026-06-16 — cover &lt;20260616143508.124122-1-carvsdriver@gmail.com&gt; | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v9 submitted 2026-06-16 — 1/2 &lt;20260616143508.124122-2-carvsdriver@gmail.com&gt; | skipped automatically once merged |
 
 ---
 
@@ -573,13 +573,15 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v8 2-patch series submitted 2026-06-10.
-> v8 addresses Ilpo Järvinen's v7 review (bits.h, dev_printk.h, static mutex
-> init, wmidev_query_block min_size, u8 * data pointer, FIELD_GET cast, blank
-> line, sysfs_emit format).  v7 submitted 2026-06-09 (wmidev_query_block,
-> __free(kfree), GENMASK/FIELD_GET, guard(mutex), sync_locked helper).
-> v6 submitted 2026-06-08; v5 submitted 2026-05-27.
-> Cover letter: `<20260610155340.342949-1-carvsdriver@gmail.com>`
+> **Upstream:** v9 2-patch series submitted 2026-06-16.
+> v9 addresses Armin Wolf's v8 review: notifier architecture (BLOCKING_NOTIFIER_HEAD
+> replaces global struct + mutex; block driver owns input_dev in private data),
+> struct lenovo_feature_status for type-safe buffer access, ID verification,
+> notify_new instead of notify, const attribute arrays, __initconst DMI table,
+> dropped error message and redundant BKBD masking.
+> v8 submitted 2026-06-10 (Ilpo Järvinen review items).
+> v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27.
+> Cover letter: `<20260616143508.124122-1-carvsdriver@gmail.com>`
 
 ---
 
@@ -989,7 +991,7 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
 | `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch` | cdc-acm bulk-IN patch upstream submission (submitted 2026-05-15) |
 | `scripts/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
-| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v8) |
+| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v9) |
 | `scripts/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (v6 series patch 2/2; v5 submitted 2026-05-27) |
 | `scripts/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist returning -ENODEV on Yoga Book 9 to prevent duplicate SW_TABLET_MODE node (v6 series patch 1/2) |
 

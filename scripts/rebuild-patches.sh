@@ -258,7 +258,7 @@ sudo modprobe yb9_kbdock \
 # WMI device.  Reloading the patched version (which returns -ENODEV) is
 # unnecessary and triggers a brief rfkill disruption via the ideapad notifier
 # chain, temporarily disabling WiFi and Bluetooth.
-if ls /sys/bus/wmi/drivers/lenovo-ymc/ 2>/dev/null | grep -q .; then
+if ls /sys/bus/wmi/drivers/lenovo-ymc/ 2>/dev/null | grep -qE '^[0-9A-Fa-f]{8}-'; then
     echo "    lenovo_ymc is bound — reloading patched version."
     sudo modprobe -r lenovo_ymc 2>/dev/null || true
     sudo modprobe lenovo_ymc \
