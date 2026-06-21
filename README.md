@@ -496,8 +496,8 @@ will be correct and the script will become a no-op.
 | 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | usb-next (merged 2026-05-27) | rebuild until kernel ships |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v9 submitted 2026-06-16 — [lore](https://lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/) | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v9 submitted 2026-06-16 — [lore](https://lore.kernel.org/all/20260616143508.124122-2-carvsdriver@gmail.com/) | skipped automatically once merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v10 submitted 2026-06-21 — [lore](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/) | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v10 submitted 2026-06-21 — [lore](https://lore.kernel.org/all/20260621135744.504613-2-carvsdriver@gmail.com/) | skipped automatically once merged |
 
 ---
 
@@ -573,15 +573,17 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v9 2-patch series submitted 2026-06-16.
-> v9 addresses Armin Wolf's v8 review: notifier architecture (BLOCKING_NOTIFIER_HEAD
-> replaces global struct + mutex; block driver owns input_dev in private data),
-> struct lenovo_feature_status for type-safe buffer access, ID verification,
-> notify_new instead of notify, const attribute arrays, __initconst DMI table,
-> dropped error message and redundant BKBD masking.
+> **Upstream:** v10 2-patch series submitted 2026-06-21.
+> v10 addresses Armin Wolf's v9 review: pointer-out u32 *bkbd in yb9_kbdock_query()
+> to avoid 0xFFFFFFFF misread as -EPERM; spinlock protecting input_report_switch +
+> input_sync; yb9_kbdock_sync() propagates error to resume and block_probe; removed
+> zero-initializer on struct wmi_buffer out; .min_event_size replaces manual length
+> check in notify_new; added compiler_attributes.h and types.h; ABI doc date/version.
+> Patch 1/2 (lenovo-ymc) unchanged from v9.
+> v9 submitted 2026-06-16 (Armin Wolf's v8 review — notifier architecture).
 > v8 submitted 2026-06-10 (Ilpo Järvinen review items).
 > v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27.
-> Cover: [lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/)
+> Cover: [lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/)
 
 ---
 

@@ -35,13 +35,14 @@
  *
  * NOTE: Local build for kernel 7.0.x (Fedora 43).  wmidev_query_block() here
  * takes 3 parameters (no min_size); length is checked manually.  The upstream
- * submission uses the 4-parameter form.
+ * submission uses the 4-parameter form and .min_event_size in struct wmi_driver.
  *
  * Copyright (C) 2026 Dave Carey <carvsdriver@gmail.com>
  */
 
 #include <linux/acpi.h>
 #include <linux/cleanup.h>
+#include <linux/compiler_attributes.h>
 #include <linux/dev_printk.h>
 #include <linux/dmi.h>
 #include <linux/input.h>
@@ -49,6 +50,8 @@
 #include <linux/notifier.h>
 #include <linux/pm.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/types.h>
 #include <linux/wmi.h>
 
 #define YB9_KBDOCK_EVENT_GUID	"806BD2A2-177B-481D-BFB5-3BA0BB4A2285"
@@ -103,11 +106,12 @@ struct yb9_kbdock_data {
 	struct wmi_device	*wdev;
 	struct input_dev	*input_dev;
 	struct notifier_block	 nb;
+	spinlock_t		 lock;	/* protects input_report_switch + input_sync */
 };
 
-static int yb9_kbdock_query(struct yb9_kbdock_data *d)
+static int yb9_kbdock_query(struct yb9_kbdock_data *d, u32 *bkbd)
 {
-	struct wmi_buffer out = {};
+	struct wmi_buffer out;
 	int ret;
 
 	/* local kernel: 3-param wmidev_query_block, check length manually */
@@ -123,24 +127,32 @@ static int yb9_kbdock_query(struct yb9_kbdock_data *d)
 	if (le32_to_cpu(fs->id) != YB9_FEATURE_STATUS_ID)
 		return -EIO;
 
-	return le32_to_cpu(fs->status);
+	*bkbd = le32_to_cpu(fs->status);
+	return 0;
 }
 
 static void yb9_kbdock_report(struct yb9_kbdock_data *d, u32 bkbd)
 {
 	int tablet = (bkbd == BKBD_DETACHED) ? 1 : 0;
 
+	spin_lock(&d->lock);
 	input_report_switch(d->input_dev, SW_TABLET_MODE, tablet);
 	input_sync(d->input_dev);
+	spin_unlock(&d->lock);
 	dev_dbg(&d->wdev->dev, "BKBD=%u SW_TABLET_MODE=%d\n", bkbd, tablet);
 }
 
-static void yb9_kbdock_sync(struct yb9_kbdock_data *d)
+static int yb9_kbdock_sync(struct yb9_kbdock_data *d)
 {
-	int bkbd = yb9_kbdock_query(d);
+	u32 bkbd;
+	int ret;
 
-	if (bkbd >= 0)
-		yb9_kbdock_report(d, bkbd);
+	ret = yb9_kbdock_query(d, &bkbd);
+	if (ret)
+		return ret;
+
+	yb9_kbdock_report(d, bkbd);
+	return 0;
 }
 
 static int yb9_kbdock_nb_call(struct notifier_block *nb,
@@ -158,11 +170,13 @@ static ssize_t keyboard_position_show(struct device *dev,
 				       char *buf)
 {
 	struct yb9_kbdock_data *d = dev_get_drvdata(dev);
-	int bkbd = yb9_kbdock_query(d);
+	u32 bkbd;
+	int ret;
 
-	if (bkbd < 0)
-		return bkbd;
-	return sysfs_emit(buf, "%d\n", bkbd);
+	ret = yb9_kbdock_query(d, &bkbd);
+	if (ret)
+		return ret;
+	return sysfs_emit(buf, "%u\n", bkbd);
 }
 static DEVICE_ATTR_RO(keyboard_position);
 
@@ -176,8 +190,7 @@ static int yb9_kbdock_resume(struct device *dev)
 {
 	struct yb9_kbdock_data *d = dev_get_drvdata(dev);
 
-	yb9_kbdock_sync(d);
-	return 0;
+	return yb9_kbdock_sync(d);
 }
 static DEFINE_SIMPLE_DEV_PM_OPS(yb9_kbdock_pm_ops, NULL, yb9_kbdock_resume);
 
@@ -192,6 +205,7 @@ static int yb9_kbdock_block_probe(struct wmi_device *wdev, const void *ctx)
 		return -ENOMEM;
 
 	d->wdev = wdev;
+	spin_lock_init(&d->lock);
 
 	input_dev = devm_input_allocate_device(&wdev->dev);
 	if (!input_dev)
@@ -214,8 +228,7 @@ static int yb9_kbdock_block_probe(struct wmi_device *wdev, const void *ctx)
 		return ret;
 
 	dev_set_drvdata(&wdev->dev, d);
-	yb9_kbdock_sync(d);
-	return 0;
+	return yb9_kbdock_sync(d);
 }
 
 static const struct wmi_device_id yb9_kbdock_block_id_table[] = {
@@ -245,6 +258,7 @@ static void yb9_kbdock_notify_new(struct wmi_device *wdev,
 	/*
 	 * _WED(0xEB) returns EC.BKBD directly as a 32-bit integer
 	 * (LENOVO_BTKBD_EVENT WmiDataId(1) uint32 Status).
+	 * Local kernel lacks .min_event_size so length is checked manually.
 	 */
 	if (!data || data->length < sizeof(__le32))
 		return;
