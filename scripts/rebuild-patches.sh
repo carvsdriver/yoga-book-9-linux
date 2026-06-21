@@ -260,10 +260,17 @@ sudo modprobe yb9_kbdock \
 # chain, temporarily disabling WiFi and Bluetooth.
 if ls /sys/bus/wmi/drivers/lenovo-ymc/ 2>/dev/null | grep -qE '^[0-9A-Fa-f]{8}-'; then
     echo "    lenovo_ymc is bound — reloading patched version."
+    # Save rfkill state; the unload/load cycle fires the ideapad notifier chain
+    # which soft-blocks WiFi and Bluetooth.  Restore immediately after.
+    _wifi_up=$(rfkill list type wifi 2>/dev/null | grep -q "Soft blocked: no" && echo yes || echo no)
+    _bt_up=$(rfkill list type bluetooth 2>/dev/null | grep -q "Soft blocked: no" && echo yes || echo no)
     sudo modprobe -r lenovo_ymc 2>/dev/null || true
     sudo modprobe lenovo_ymc \
         && echo "    lenovo_ymc loaded (patched)" \
         || echo "    WARNING: lenovo_ymc load failed — reboot required"
+    sleep 0.5
+    [ "$_wifi_up" = yes ] && { sudo rfkill unblock wifi 2>/dev/null || true; echo "    WiFi rfkill restored."; }
+    [ "$_bt_up"  = yes ] && { sudo rfkill unblock bluetooth 2>/dev/null || true; echo "    Bluetooth rfkill restored."; }
 else
     echo "    lenovo_ymc already unbound (patched) — skipping reload."
 fi

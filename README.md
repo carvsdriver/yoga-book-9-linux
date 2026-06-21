@@ -367,7 +367,7 @@ and **`scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`**
 > **Upstream (0004):** Merged 2026-04-19; ships in kernel 7.1.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
 >
-> **Upstream (0005):** Submitted 2026-05-15 to linux-usb@vger.kernel.org; awaiting review.
+> **Upstream (0005):** Merged to usb-next 2026-05-27 (Greg KH); will ship in next major release.
 
 > **Note:** A udev/Python fallback (`99-ingenic-touch-init.rules` +
 > `ingenic-touch-init.py`) is retained for reference only. Do not install it
@@ -394,7 +394,7 @@ slots active with stale tracking IDs until the next touch. Fixed in
 
 Patch: **`scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
 
-> **Upstream:** Submitted 2026-05-15 to linux-input@vger.kernel.org; awaiting review.
+> **Upstream:** v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review); awaiting review.
 
 ### Bug 2c: Ghost Contacts from Stale Firmware Slots
 
@@ -495,9 +495,9 @@ will be correct and the script will become a no-op.
 | 0002 stale MT slots fix | `hid-multitouch` | submitted 2026-05-15; awaiting review | rebuild |
 | 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
-| 0005 cdc-acm bulk-IN polling | `cdc-acm` | pending review | rebuild until merged |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v9 submitted 2026-06-16 — cover &lt;20260616143508.124122-1-carvsdriver@gmail.com&gt; | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v9 submitted 2026-06-16 — 1/2 &lt;20260616143508.124122-2-carvsdriver@gmail.com&gt; | skipped automatically once merged |
+| 0005 cdc-acm bulk-IN polling | `cdc-acm` | usb-next (merged 2026-05-27) | rebuild until kernel ships |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v9 submitted 2026-06-16 — [lore](https://lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/) | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v9 submitted 2026-06-16 — [lore](https://lore.kernel.org/all/20260616143508.124122-2-carvsdriver@gmail.com/) | skipped automatically once merged |
 
 ---
 
@@ -581,7 +581,7 @@ sudo evtest /dev/input/eventN
 > dropped error message and redundant BKBD masking.
 > v8 submitted 2026-06-10 (Ilpo Järvinen review items).
 > v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27.
-> Cover letter: `<20260616143508.124122-1-carvsdriver@gmail.com>`
+> Cover: [lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260616143508.124122-1-carvsdriver@gmail.com/)
 
 ---
 
