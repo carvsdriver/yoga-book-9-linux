@@ -491,13 +491,13 @@ will be correct and the script will become a no-op.
 
 | Patch | Module | Merged in | Action needed on DNF update |
 |-------|--------|-----------|------------------------------|
-| 0001 hid-multitouch descriptor fixup | `hid-multitouch` | pending (hid/for-next) | rebuild until kernel ≥ merge window target |
-| 0002 stale MT slots fix | `hid-multitouch` | submitted 2026-05-15; awaiting review | rebuild |
-| 0003 ghost contacts fix | `hid-multitouch` | submitted 2026-05-14; awaiting review | rebuild |
+| 0001 hid-multitouch descriptor fixup | `hid-multitouch` | **mainline** (merged 2026-05-28) | skipped automatically once kernel ships |
+| 0002 stale MT slots fix | `hid-multitouch` | submitted 2026-05-22; awaiting review | rebuild |
+| 0003 ghost contacts fix | `hid-multitouch` | hid/for-next (applied 2026-06-10) | rebuild until kernel ships |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | usb-next (merged 2026-05-27) | rebuild until kernel ships |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v10 submitted 2026-06-21 — [lore](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/) | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v10 submitted 2026-06-21 — [lore](https://lore.kernel.org/all/20260621135744.504613-2-carvsdriver@gmail.com/) | skipped automatically once merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v11 submitted 2026-06-23 — [lore](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/) | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v11 submitted 2026-06-23 — [lore](https://lore.kernel.org/all/20260623125914.833063-2-carvsdriver@gmail.com/) | skipped automatically once merged |
 
 ---
 
@@ -573,7 +573,10 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v10 2-patch series submitted 2026-06-21.
+> **Upstream:** v11 2-patch series submitted 2026-06-23.
+> v11 fixes ABI doc Date/KernelVersion to reflect expected merge date (June 2027, 7.3)
+> rather than submission date; carries Armin Wolf's Reviewed-by tag.
+> v10 submitted 2026-06-21 (Armin Wolf's v10 review — ABI doc date/version correction).
 > v10 addresses Armin Wolf's v9 review: pointer-out u32 *bkbd in yb9_kbdock_query()
 > to avoid 0xFFFFFFFF misread as -EPERM; spinlock protecting input_report_switch +
 > input_sync; yb9_kbdock_sync() propagates error to resume and block_probe; removed
@@ -583,7 +586,7 @@ sudo evtest /dev/input/eventN
 > v9 submitted 2026-06-16 (Armin Wolf's v8 review — notifier architecture).
 > v8 submitted 2026-06-10 (Ilpo Järvinen review items).
 > v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27.
-> Cover: [lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/)
+> Cover: [lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/)
 
 ---
 

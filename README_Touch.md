@@ -13,23 +13,27 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 |-------|------|------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
 | `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
-| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Applied to hid/for-next** 2026-05-12 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Merged to mainline** 2026-05-28 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | Submitted 2026-05-14; awaiting review — Message-ID: &lt;CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com&gt; |
-| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v10 submitted 2026-06-21 — [lore.kernel.org/all/20260621135744.504613-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260621135744.504613-2-carvsdriver@gmail.com/) |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v10 submitted 2026-06-21 — [lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Applied to hid/for-next** 2026-06-10 (Jiri Kosina) |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v11 submitted 2026-06-23 — [lore.kernel.org/all/20260623125914.833063-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260623125914.833063-2-carvsdriver@gmail.com/) |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v11 submitted 2026-06-23 — [lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/) |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
-in kernel 7.1. The hid-multitouch misclassification fix (v2) is applied to
-hid/for-next and expected in the next merge window. The keyboard dock driver
-(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v10 2-patch series
-on 2026-06-21 ([lore.kernel.org](https://lore.kernel.org/all/20260621135744.504613-1-carvsdriver@gmail.com/)).
+in kernel 7.1. The hid-multitouch misclassification fix (v2) merged to Linus
+mainline 2026-05-28. The ghost contacts fix (Honor ContactCount) was applied
+to hid/for-next 2026-06-10 (Jiri Kosina). The stale-slots fix (v2, 2026-05-22)
+is awaiting review. The keyboard dock driver
+(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v11 2-patch series
+on 2026-06-23 ([lore.kernel.org](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/)).
+v11 fixes ABI doc Date/KernelVersion to reflect expected merge date (June 2027, 7.3)
+per Armin Wolf; carries his Reviewed-by tag. Patch 1/2 (lenovo-ymc) unchanged.
+v10 submitted 2026-06-21 (Armin Wolf's v10 review — ABI doc date/version correction).
 v10 addresses Armin Wolf's v9 review: pointer-out u32 *bkbd in yb9_kbdock_query()
 to avoid 0xFFFFFFFF misread as -EPERM; spinlock protecting input_report_switch +
 input_sync; yb9_kbdock_sync() propagates error; .min_event_size replaces manual
 length check; added compiler_attributes.h and types.h; updated ABI doc.
-Patch 1/2 (lenovo-ymc) unchanged.
 v9 submitted 2026-06-16 (Armin Wolf's v8 NACK — notifier architecture).
 v8 submitted 2026-06-10 (Ilpo Järvinen's 9-item v7 review).
 v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27
