@@ -1,0 +1,17 @@
+[Unit]
+Description=Dual screen rotation for Yoga Book 9i
+After=graphical-session.target iio-sensor-proxy.service
+PartOf=graphical-session.target
+
+[Service]
+User=pickles
+ExecStartPre=/bin/bash -c 'until [ -S /run/user/1000/wayland-0 ]; do sleep 1; done; sleep 5'
+ExecStart=/usr/local/bin/yoga9-rotate.py
+Restart=always
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=WAYLAND_DISPLAY=wayland-0
+
+[Install]
+WantedBy=graphical.target

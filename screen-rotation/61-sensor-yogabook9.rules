@@ -1,0 +1,27 @@
+# Lenovo Yoga Book 9 14IAH10 (83KJ) — accelerometer mount matrices
+#
+# Both accel IIO devices share the same modalias (platform:HID-SENSOR-200073)
+# so hwdb cannot distinguish them — the second hwdb entry overwrites the first
+# for both devices.  This rules file matches on DEVPATH instead, which includes
+# the stable HID collection index (.12 / .13).
+#
+# Correct matrix for both: negate X only (-1,0,0; 0,1,0; 0,0,1).
+# Verified by hardware test 2026-06-25:
+#   - Portrait tablet top-up:  raw_y = +1031 → corr_y = +1031 → "normal"
+#   - Portrait tablet bottom-up: raw_y = -1031 → corr_y = -1031 → "bottom-up"
+#   - Landscape right-up: raw_x = -961 → corr_x = +961 → "right-up"
+#   - Landscape left-up:  raw_x = +1007 → corr_x = -1007 → "left-up"
+#
+# Supersedes /etc/udev/hwdb.d/61-sensor-yogabook9.hwdb (which has the bug
+# but is left in place so it can be submitted upstream with corrections).
+
+# Top screen section (eDP-1, iio:device2)
+SUBSYSTEM=="iio", DEVPATH=="*HID-SENSOR-200073.12*", \
+    ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, 1, 0; 0, 0, 1"
+
+# Base/bottom section (eDP-2, iio:device3)
+# iio-sensor-proxy will also pick up .13 as a second poll-accel candidate, but
+# it selects the lower-numbered device (iio:device2 = .12) as primary, so .13
+# does not interfere.  yoga9-rotate reads .13 Y-axis directly for tent mode.
+SUBSYSTEM=="iio", DEVPATH=="*HID-SENSOR-200073.13*", \
+    ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, 1, 0; 0, 0, 1"

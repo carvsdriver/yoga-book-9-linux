@@ -1,0 +1,13 @@
+[Unit]
+Description=Dual-screen auto-rotation for Lenovo Yoga Book 9
+Documentation=https://github.com/davecarey/yoga-book9-rotation
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/yoga9-rotate
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

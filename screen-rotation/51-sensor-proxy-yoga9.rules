@@ -1,0 +1,10 @@
+/* Allow the yoga9-rotate daemon to claim iio-sensor-proxy even when running
+ * as a system service (outside an active logind session).  The daemon runs as
+ * the unprivileged 'pickles' user; without this rule polkit would deny the
+ * ClaimAccelerometer call because the process has no active session. */
+polkit.addRule(function(action, subject) {
+    if (action.id === "net.hadess.SensorProxy.claim-sensor" &&
+            subject.user === "pickles") {
+        return polkit.Result.YES;
+    }
+});
