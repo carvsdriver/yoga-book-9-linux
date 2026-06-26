@@ -5,7 +5,7 @@
 Implement native Linux screen rotation through the standard stack
 (`iio-sensor-proxy` → KDE) so it works on future installs without the
 custom `rotate-screens.sh` daemon. This document tracks findings from
-Layer 0 investigation (see beads issue `pickles-u4o`).
+Layer 0 investigation.
 
 ## Hardware
 
@@ -226,15 +226,3 @@ if |dev2.corrected_Y| > 100000 and |dev3.corrected_Y| > 100000:
     if sign(dev2.corrected_Y) != sign(dev3.corrected_Y):
         tent_mode = true
 ```
-
-## Beads Issues
-
-| Issue | Description | Status |
-|---|---|---|
-| `pickles-4w0` | Parent epic: native screen rotation | open |
-| `pickles-u4o` | Layer 0: this investigation | closed ✓ |
-| `pickles-uid` | Layer 1: hwdb/udev matrix fix | closed ✓ |
-| `pickles-qd6` | Layer 4a: KWin panel_orientation fix | open |
-| `pickles-99k` | Layer 2: iio-sensor-proxy tent mode | in_progress (patch deployed, needs physical test) |
-| `pickles-454` | Layer 3: kernel tent mode driver (fallback) | open (lower priority now Layer 2 works) |
-| `pickles-6l2` | Layer 4b/4c: KDE dual-screen + tent mode | blocked on 99k/454 |
