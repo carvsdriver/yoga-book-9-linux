@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # rebuild-patches.sh — Rebuild and reinstall hid-multitouch, cdc-acm,
 # yb9-kbdock, and lenovo-ymc kernel patches for the running kernel.
+# Also reinstalls the screen rotation daemon and udev rules.
 #
 # Patches applied:
 #   0001  hid-multitouch  — Yoga Book 9 touchscreen descriptor fixup
@@ -14,24 +15,31 @@
 #   0007  lenovo-ymc      — return -ENODEV on Yoga Book 9 (yb9-kbdock owns
 #                           SW_TABLET_MODE on this hardware)
 #
+# Rotation (step 15, no kernel build needed):
+#   61-sensor-yogabook9.rules  → /etc/udev/rules.d/   (accel mount matrix fix)
+#   51-sensor-proxy-yoga9.rules → /etc/polkit-1/rules.d/
+#   yoga9-rotate.py            → /usr/local/bin/
+#   screen-rotate.service      → /etc/systemd/system/
+#
 # Usage:
-#   cd ~/projects/yoga9ibook/scripts
+#   cd ~/projects/yoga9ibook/kernel
 #   bash rebuild-patches.sh
 
 set -euo pipefail
 
 KVER="$(uname -r)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 BUILD_DIR="${HOME}/kernel-src"
 RPM_CACHE="${HOME}/kernel-src-rpms"
 
-HID_PATCH="${SCRIPT_DIR}/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch"
-HID_PATCH2="${SCRIPT_DIR}/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch"
-HID_PATCH3="${SCRIPT_DIR}/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch"
-CDC_PATCH="${SCRIPT_DIR}/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
-CDC_PATCH3="${SCRIPT_DIR}/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
-KBDOCK_SRC="${SCRIPT_DIR}/lenovo-yb9-kbdock.c"
-YMC_PATCH="${SCRIPT_DIR}/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch"
+HID_PATCH="${SCRIPT_DIR}/patches/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch"
+HID_PATCH2="${SCRIPT_DIR}/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch"
+HID_PATCH3="${SCRIPT_DIR}/patches/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch"
+CDC_PATCH="${SCRIPT_DIR}/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch"
+CDC_PATCH3="${SCRIPT_DIR}/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch"
+KBDOCK_SRC="${SCRIPT_DIR}/sources/lenovo-yb9-kbdock.c"
+YMC_PATCH="${SCRIPT_DIR}/patches/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch"
 
 echo "==> Rebuilding patches for kernel ${KVER}"
 
@@ -268,7 +276,14 @@ if ls /sys/bus/wmi/drivers/lenovo-ymc/ 2>/dev/null | grep -qE '^[0-9A-Fa-f]{8}-'
     sudo modprobe lenovo_ymc \
         && echo "    lenovo_ymc loaded (patched)" \
         || echo "    WARNING: lenovo_ymc load failed — reboot required"
-    sleep 0.5
+    # The ideapad notifier chain fires asynchronously after modprobe returns
+    # and may soft-block WiFi/BT up to ~1s later.  Poll until the block
+    # actually lands (or 2s passes) before restoring, so we don't restore
+    # before the block and then have it re-blocked underneath us.
+    for _i in 1 2 3 4; do
+        rfkill list type wifi 2>/dev/null | grep -q "Soft blocked: yes" && break
+        sleep 0.5
+    done
     [ "$_wifi_up" = yes ] && { sudo rfkill unblock wifi 2>/dev/null || true; echo "    WiFi rfkill restored."; }
     [ "$_bt_up"  = yes ] && { sudo rfkill unblock bluetooth 2>/dev/null || true; echo "    Bluetooth rfkill restored."; }
 else
@@ -337,6 +352,47 @@ if [ -n "$HID_MT_DEV" ]; then
     echo "    Ghost state cleared."
 else
     echo "    WARNING: INGENIC hid-multitouch device not found; ghost state not cleared"
+fi
+
+# --------------------------------------------------------------------------
+# 15. Screen rotation setup
+# --------------------------------------------------------------------------
+ROTATION_DIR="${REPO_DIR}/rotation"
+echo "==> Installing screen rotation daemon and rules..."
+
+if [ -f "${ROTATION_DIR}/61-sensor-yogabook9.rules" ]; then
+    sudo cp "${ROTATION_DIR}/61-sensor-yogabook9.rules" /etc/udev/rules.d/
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --action=add --subsystem-match=iio
+    sudo systemctl restart iio-sensor-proxy.service
+    echo "    Udev rules installed and iio-sensor-proxy restarted."
+else
+    echo "    WARNING: 61-sensor-yogabook9.rules not found at ${ROTATION_DIR}/ — skipping"
+fi
+
+if [ -f "${ROTATION_DIR}/51-sensor-proxy-yoga9.rules" ]; then
+    sudo cp "${ROTATION_DIR}/51-sensor-proxy-yoga9.rules" /etc/polkit-1/rules.d/
+    echo "    Polkit rule installed."
+fi
+
+if [ -f "${ROTATION_DIR}/yoga9-rotate.py" ]; then
+    sudo cp "${ROTATION_DIR}/yoga9-rotate.py" /usr/local/bin/yoga9-rotate.py
+    sudo chmod 755 /usr/local/bin/yoga9-rotate.py
+    echo "    Daemon installed at /usr/local/bin/yoga9-rotate.py"
+fi
+
+if [ -f "${ROTATION_DIR}/screen-rotate.service" ]; then
+    sudo cp "${ROTATION_DIR}/screen-rotate.service" /etc/systemd/system/screen-rotate.service
+    sudo systemctl daemon-reload
+    if systemctl is-enabled --quiet screen-rotate.service 2>/dev/null; then
+        sudo systemctl restart screen-rotate.service \
+            && echo "    screen-rotate.service restarted." \
+            || echo "    WARNING: screen-rotate.service failed to restart"
+    else
+        sudo systemctl enable --now screen-rotate.service \
+            && echo "    screen-rotate.service enabled and started." \
+            || echo "    WARNING: screen-rotate.service failed to start"
+    fi
 fi
 
 # --------------------------------------------------------------------------

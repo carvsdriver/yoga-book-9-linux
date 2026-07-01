@@ -166,63 +166,42 @@ pose (screen angled) reports `bottom-up` (raw_y ≈ −923, corrected y = −923
 This is expected and acceptable — KDE will use `SW_TABLET_MODE=0` from the
 kbdock driver to suppress auto-rotation in laptop mode (Layer 4 concern).
 
-## Open Questions
-
-1. Does KDE's `kded_kscreen` react to `iio-sensor-proxy` orientation signals
-   at all? (test: enable auto-rotation in System Settings → Display and Monitor)
-2. Does iio-sensor-proxy select dev2 deterministically across reboots? The
-   `.12`/`.13` DEVPATH is stable; `iio:device2`/`iio:device3` numbers may not be.
-
 ## Tent Mode (Layer 2 complete — 2026-06-25)
 
-Tent mode is detected by comparing the corrected Y-axis sign from both
-accelerometers. Implemented in iio-sensor-proxy via a local patch.
-
-### Implementation
-
-**udev**: dev3 (`.13.auto`) tagged with `ACCEL_LOCATION=base` in
-`61-sensor-yogabook9.rules`. This causes `driver_discover()` (drivers.h) to
-skip it as the primary accel slot (which only uses ACCEL_LOCATION_DISPLAY).
-
-**iio-sensor-proxy patch** (in `iio-sensor-proxy-3.8/src/`):
-
-- `net.hadess.SensorProxy.xml`: new `TentMode (b)` read-only property added to
-  the D-Bus interface.
-
-- `iio-sensor-proxy.c`: during `find_sensors()`, after the primary accel loop,
-  searches for an IIO device tagged `iio-poll-accel` with `ACCEL_LOCATION=base`
-  and stores it as `data->base_accel_udev`. In `accel_changed_func()`, every
-  700ms poll: reads base accel X/Y/Z from sysfs uncached, applies its mount
-  matrix, then:
-
-```c
-tent_mode = (abs(readings->accel_y) > 100000) &&
-            (abs((int)base.y) > 100000) &&
-            ((readings->accel_y > 0) != (base.y > 0));
-```
-
-The 100000 raw-unit threshold (≈0.1G) prevents false positives when the device
-is near-flat (both Y values near zero).
-
-### Verification
-
-```bash
-gdbus call --system --dest net.hadess.SensorProxy \
-    --object-path /net/hadess/SensorProxy \
-    --method org.freedesktop.DBus.Properties.GetAll \
-    net.hadess.SensorProxy
-```
-
-Returns `TentMode: false` in normal laptop-open mode. Verbose daemon startup
-logs: "Found base accelerometer for tent mode at .../HID-SENSOR-200073.13.auto/iio:device3".
-
-Physical tent-mode test (fold device back past 180°) still needed to confirm
-TentMode flips to true.
+Tent mode is detected by `yoga9-rotate.py` reading both accelerometer Y-axes directly
+from sysfs. No `iio-sensor-proxy` patch is required.
 
 ### Detection logic
 
 ```
-if |dev2.corrected_Y| > 100000 and |dev3.corrected_Y| > 100000:
-    if sign(dev2.corrected_Y) != sign(dev3.corrected_Y):
+if |dev2_raw_y| > 100000 and |dev3_raw_y| > 100000:
+    if sign(dev2_raw_y) != sign(dev3_raw_y):
         tent_mode = true
 ```
+
+The 100000 raw-unit threshold (≈0.1G) prevents false positives when the device is
+near-flat. Since the mount matrix only negates X (`corrected_y = raw_y` for both
+accels), the raw values are directly comparable without applying any correction.
+
+### Implementation
+
+The daemon polls every 100ms via `GLib.timeout_add`. Paths are found by enumerating
+`/sys/bus/iio/devices/iio:device*` (7 entries, instant) and checking `os.path.realpath()`
+for the HID collection suffix `.12.auto` (display) or `.13.auto` (base).
+
+**Important:** `glob('sys/devices/**', recursive=True)` hangs on this hardware — it
+traverses the entire sysfs device tree and blocks in some subsystem entries. The IIO
+bus symlink approach avoids this entirely.
+
+### Verification
+
+```bash
+# Watch the daemon log
+journalctl -u screen-rotate.service -f
+
+# Fold the device into tent mode and look for:
+# yoga9-rotate INFO: state=tent  output.eDP-1.rotation.none ...
+```
+
+Tent mode was physically verified 2026-06-25: both screens go to `none` rotation at
+position (0,0) when folded past 180°, returning to `normal` on unfold.

@@ -7,19 +7,9 @@ discovered through testing.
 
 This guide will work with or without dual boot.
 
-IMPORTANT NOTE:
+> **Dual boot users:** You will need a physical keyboard and mouse until Bluetooth is configured in [Step 7](#markdown-header-bluetooth-dual-boot-sync).
 
-If you are dual boot, you will need to use a physical keyboard and
-mouse until you get Bluetooth sorted out in Step 7.
-
-DISCLAIMER
-
-I did this out of sheer boredom and the desire to share knowledge. While this
-should work, you need to be prepared to handle any oddities or nuances along
-the way. If anything else crops up during daily use, I will update this guide.
-
-Please feel free to open an issue if you find any problems specific to this
-guide. Submit pull requests for recommended changes.
+This guide is based on personal testing. Open an issue if you run into problems not covered here; pull requests for improvements are welcome.
 
 ---
 
@@ -29,17 +19,18 @@ guide. Submit pull requests for recommended changes.
 2. [Known Issues](#markdown-header-known-issues)
 3. [TODO](#markdown-header-todo)
 4. [Installing Fedora](#markdown-header-installing-fedora)
-5. [Installing rEFInd](#markdown-header-installing-refind)
-6. [Installing Packages](#markdown-header-installing-packages)
-7. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-8. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 2c (ghost contacts), Bug 3 (OSK freeze)
-9. [Keyboard Dock Detection](#markdown-header-keyboard-dock-detection)
-10. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
-11. [Display Configuration](#markdown-header-display-configuration)
-12. [Screen Rotation](#markdown-header-screen-rotation)
-13. [Facial Recognition Login](#markdown-header-facial-recognition-login)
-14. [Cleanup](#markdown-header-cleanup)
-15. [File Reference](#markdown-header-file-reference)
+5. [Upgrading the Kernel](#markdown-header-upgrading-the-kernel)
+6. [Installing rEFInd](#markdown-header-installing-refind)
+7. [Installing Packages](#markdown-header-installing-packages)
+8. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
+9. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 2c (ghost contacts), Bug 3 (OSK freeze)
+10. [Keyboard Dock Detection](#markdown-header-keyboard-dock-detection)
+11. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
+12. [Display Configuration](#markdown-header-display-configuration)
+13. [Screen Rotation](#markdown-header-screen-rotation)
+14. [Facial Recognition Login](#markdown-header-facial-recognition-login)
+15. [Cleanup](#markdown-header-cleanup)
+16. [File Reference](#markdown-header-file-reference)
 
 ---
 
@@ -88,7 +79,7 @@ fixes it. No permanent workaround found yet.
 
 ## TODO
 
-1. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available as of March 2026.
+1. Fingerprint reader (`17ef:f006` "Idea5003") — no Linux driver available yet.
 2. Secure Boot — MOK enrollment seems to require a specific sequence at reboot. Work in progress.
 3. Bluetooth power-off by `kdeconnectd` at session start — permanent fix under investigation.
 
@@ -166,6 +157,27 @@ sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 ```
 
 > ⚠️ Do **not** add `acpi=noirq` — it breaks suspend/wake.
+
+---
+
+## Upgrading the Kernel
+
+Before doing anything else after first boot, upgrade to the latest available kernel. Several of the hardware patches in this guide have already merged to mainline or staging trees — a newer Fedora kernel means fewer out-of-tree modules to build and maintain.
+
+```bash
+sudo dnf upgrade kernel
+reboot
+```
+
+After rebooting, confirm the new version is running:
+
+```bash
+uname -r
+```
+
+The patch rebuild script (`kernel/rebuild-patches.sh`) automatically detects which patches are already present in the running kernel and skips them.
+
+> **Note:** The cdc-acm USB fix (patch 0004) merged in kernel 7.1. If `uname -r` shows 7.1 or later, that patch is already built in — the script will skip it automatically.
 
 ---
 
@@ -284,7 +296,7 @@ sudo dnf install hivex python3-hivex
 1. **Remove Pairing From Windows**
 2. **Boot into Linux** and pair the keyboard there.
 3. **Boot into Windows** and pair the keyboard there.
-4. **Boot into Linux** keyboard will no longer be paried. Do **not** remove the broken pairing yet.
+4. **Boot into Linux** — keyboard will no longer be paired. Do **not** remove the broken pairing yet.
 3. **Run the extraction script** (below) to copy Windows' key into Linux.
 4. **Restart Bluetooth** — the keyboard should connect without re-pairing.
 
@@ -292,10 +304,10 @@ The only thing you'll have to do between reboots is flip the switch under the mo
 
 ### The Script
 
-Save `btreg.py` to `~/scripts/btreg.py` and run:
+Save `btreg.py` to `~/setup/btreg.py` and run:
 
 ```bash
-sudo python3 ~/scripts/btreg.py
+sudo python3 ~/setup/btreg.py
 ```
 
 The script will:
@@ -351,7 +363,7 @@ sudo -i
 ## Enabling the Touchscreen
 
 Touch works on both displays after fixing three separate bugs. Run
-`scripts/rebuild-patches.sh` to build and install all patches automatically.
+`kernel/rebuild-patches.sh` to build and install all patches automatically.
 Full technical details, background, and investigation notes are in
 [README_Touch.md](README_Touch.md).
 
@@ -361,8 +373,8 @@ The INGENIC controller resets continuously because `cdc-acm` rejects the device
 at probe and leaves the notification endpoint unpolled. A second ~55-second
 watchdog fires when the bulk-IN endpoint goes unread.
 
-Patches: **`scripts/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`**
-and **`scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`**
+Patches: **`kernel/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch`**
+and **`kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`**
 
 > **Upstream (0004):** Merged 2026-04-19; ships in kernel 7.1.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
@@ -380,7 +392,7 @@ and **`scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`**
 Fixed by a descriptor fixup in `mt_report_fixup()` that removes the TOUCHPAD
 collection and neutralizes problematic SET/GET_REPORT triggers.
 
-Patch: **`scripts/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`**
+Patch: **`kernel/patches/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`**
 
 > **Upstream:** Applied to hid/for-next 2026-05-12 by Jiri Kosina; expected in
 > the next merge window.
@@ -392,7 +404,7 @@ The firmware sends `HID_DG_CONTACTCOUNT=0` at all-fingers-up, leaving kernel MT
 slots active with stale tracking IDs until the next touch. Fixed in
 `mt_touch_report()`.
 
-Patch: **`scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
+Patch: **`kernel/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
 
 > **Upstream:** v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review); awaiting review.
 
@@ -402,7 +414,7 @@ Firmware slots beyond ContactCount retain `TipSwitch=1` indefinitely, producing
 ghost contacts on repeated multi-finger gestures. Fixed by adding
 `MT_QUIRK_CONTACT_CNT_ACCURATE` to `MT_CLS_YOGABOOK9I`.
 
-Patch: **`scripts/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch`**
+Patch: **`kernel/patches/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch`**
 
 > **Upstream:** Submitted 2026-05-14 to linux-input@vger.kernel.org; awaiting
 > review. Depends on Bug 2 fix being applied first.
@@ -414,7 +426,7 @@ mouse-click events alongside touchscreen events, stealing focus from the
 on-screen keyboard. A udev rule tells libinput to ignore it:
 
 ```bash
-sudo cp scripts/91-ingenic-emulated-touchpad.rules /etc/udev/rules.d/
+sudo cp touch/91-ingenic-emulated-touchpad.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=input --action=add
 ```
@@ -431,7 +443,7 @@ sudo libinput list-devices | grep -A4 "Emulated Touchpad"
 Copy the KWin input mapping to your config and log out/in:
 
 ```bash
-cp scripts/kcminputrc ~/.config/kcminputrc
+cp setup/kcminputrc ~/.config/kcminputrc
 ```
 
 This maps both touchscreens and both stylus inputs to the correct output:
@@ -470,7 +482,7 @@ reinstall before the new kernel is usable with touch.
 sudo dnf upgrade kernel
 reboot                          # boot into the new kernel first
 uname -r                        # confirm you're on the new version
-bash ~/projects/yoga9ibook/scripts/rebuild-patches.sh
+bash ~/projects/yoga9ibook/kernel/rebuild-patches.sh
 ```
 
 > **Important:** Run `rebuild-patches.sh` *after* rebooting into the new kernel,
@@ -540,7 +552,7 @@ sudo dnf install kernel-devel-$(uname -r) rpm-build zstd
 
 # 2. Set up an out-of-tree build directory
 mkdir -p ~/kernel-src
-cp ~/projects/yoga9ibook/scripts/lenovo-yb9-kbdock.c ~/kernel-src/yb9-kbdock.c
+cp ~/projects/yoga9ibook/kernel/sources/lenovo-yb9-kbdock.c ~/kernel-src/yb9-kbdock.c
 echo 'obj-m := yb9-kbdock.o' > ~/kernel-src/Makefile
 
 # 3. Build
@@ -573,19 +585,7 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v11 2-patch series submitted 2026-06-23.
-> v11 fixes ABI doc Date/KernelVersion to reflect expected merge date (June 2027, 7.3)
-> rather than submission date; carries Armin Wolf's Reviewed-by tag.
-> v10 submitted 2026-06-21 (Armin Wolf's v10 review — ABI doc date/version correction).
-> v10 addresses Armin Wolf's v9 review: pointer-out u32 *bkbd in yb9_kbdock_query()
-> to avoid 0xFFFFFFFF misread as -EPERM; spinlock protecting input_report_switch +
-> input_sync; yb9_kbdock_sync() propagates error to resume and block_probe; removed
-> zero-initializer on struct wmi_buffer out; .min_event_size replaces manual length
-> check in notify_new; added compiler_attributes.h and types.h; ABI doc date/version.
-> Patch 1/2 (lenovo-ymc) unchanged from v9.
-> v9 submitted 2026-06-16 (Armin Wolf's v8 review — notifier architecture).
-> v8 submitted 2026-06-10 (Ilpo Järvinen review items).
-> v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27.
+> **Upstream:** v11 2-patch series submitted 2026-06-23, awaiting review.
 > Cover: [lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/)
 
 ---
@@ -689,101 +689,72 @@ EnableHiDPI=true
 
 ### Accelerometer / Sensor Mount Matrix
 
-The Yoga Book 9 14IAH10 is not in the default udev hwdb. Add it:
+The Yoga Book 9 has two ISH accelerometers sharing the same HID modalias, which means
+hwdb cannot apply different matrices to each. A udev rules file is required instead —
+it matches on `DEVPATH`, which includes the stable HID collection index (`.12` / `.13`).
 
 ```bash
-sudo nano /etc/udev/hwdb.d/61-sensor-yogabook9.hwdb
-```
-
-```
-# Lenovo Yoga Book 9 14IAH10 accelerometer mount matrix
-sensor:modalias:platform:HID-SENSOR-200073:dmi:*:svnLENOVO:pn83KJ:*
- ACCEL_MOUNT_MATRIX=-1, 0, 0; 0, -1, 0; 0, 0, 1
-```
-
-```bash
-sudo systemd-hwdb update
+sudo cp 61-sensor-yogabook9.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=iio
+sudo udevadm trigger --action=add --subsystem-match=iio
 sudo systemctl restart iio-sensor-proxy
 ```
+
+This sets the correct matrix (`-1,0,0; 0,1,0; 0,0,1` — negate X only) for both
+accelerometers. See `rotation-README.md` for background on why hwdb cannot be used.
 
 ---
 
 ## Screen Rotation
 
-Both screens rotate together in landscape and portrait modes based on the
-bottom screen's accelerometer. Screen positions are also updated so the
-displays are correctly arranged in both landscape (stacked vertically) and
-portrait (side by side) orientations.
+Both screens rotate together automatically in all orientations. See `rotation-README.md`
+for full technical background.
 
 ### How it works
 
-- A custom shell script polls the raw accelerometer values from both ISH accelerometers
-- Tent mode is detected by comparing the Y axis sign of both accelerometers — in tent mode they read opposite signs
-- In tent mode both screens mirror at the same position showing identical content
-- In all other modes the script calls `kscreen-doctor` to rotate and reposition both displays
-- A systemd system service runs the script automatically at boot
-- A second systemd system service restarts the rotation service after every
-  suspend/resume cycle to clear stale state and let KWin settle
-- The script retries `kscreen-doctor` up to 5 times on failure to handle
-  KWin settling after resume
+`yoga9-rotate.py` is an event-driven Python daemon that:
+- Subscribes to `iio-sensor-proxy` via D-Bus for `AccelerometerOrientation` events
+- Polls both accelerometer Y-axes directly from sysfs every 100ms to detect tent mode
+- Calls `kscreen-doctor` to set rotation and position on both displays
+- Debounces changes by 500ms to absorb sensor noise
+
+No patched `iio-sensor-proxy` binary is required.
 
 ### Install
 
-1. Copy `rotate-screens.sh` to `/usr/local/bin/` and make it executable:
+First install the udev rules (see [Accelerometer / Sensor Mount Matrix](#markdown-header-accelerometer-sensor-mount-matrix) above), then:
 
 ```bash
-sudo cp rotate-screens.sh /usr/local/bin/rotate-screens.sh
-sudo chmod 755 /usr/local/bin/rotate-screens.sh
-```
+# Polkit rule — lets the system service claim the accelerometer
+sudo cp 51-sensor-proxy-yoga9.rules /etc/polkit-1/rules.d/
 
-2. Copy both service files to `/etc/systemd/system/`:
+# Daemon
+sudo cp yoga9-rotate.py /usr/local/bin/yoga9-rotate.py
+sudo chmod 755 /usr/local/bin/yoga9-rotate.py
 
-```bash
+# Service (edit User= and XDG_RUNTIME_DIR= to match your username if not pickles)
 sudo cp screen-rotate.service /etc/systemd/system/screen-rotate.service
-sudo cp screen-rotate-resume.service /etc/systemd/system/screen-rotate-resume.service
-```
-
-3. Edit the rotation service file and update the `User` field and `XDG_RUNTIME_DIR`
-   to match your username:
-
-```bash
-sudo nano /etc/systemd/system/screen-rotate.service
-```
-
-> **Note:** This service runs as a specific user because `kscreen-doctor`
-> needs access to that user's Wayland session. If multiple users need screen
-> rotation, a separate service instance is required for each — copy the
-> service file with a different name, update the `User` and
-> `XDG_RUNTIME_DIR` fields accordingly, and enable each instance
-> separately.
-
-4. Enable and start both services:
-
-```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now screen-rotate.service
-sudo systemctl enable --now screen-rotate-resume.service
 ```
 
-5. In **System Settings → Display & Monitor**, disable **Auto-rotate** for both
-   screens (the service handles rotation instead)
+In **System Settings → Display & Monitor**, disable **Auto-rotate** for both screens
+(the service handles rotation instead).
 
 ### Rotation Mapping
 
-| Physical orientation | eDP-1 (top) | eDP-2 (bottom) | Position |
-|---------------------|-------------|----------------|----------|
-| Landscape (normal) | inverted | none | stacked vertically |
-| Landscape (upside down) | none | inverted | stacked vertically |
-| Portrait (right) | left | right | side by side |
-| Portrait (left) | right | left | side by side |
-| Tent mode | none | none | mirrored at 0,0 |
+| Physical orientation | eDP-1 (top, inverted mount) | eDP-2 (bottom) |
+|---|---|---|
+| Landscape normal | inverted | none |
+| Landscape upside-down | none | inverted |
+| Portrait, right edge up | left | right |
+| Portrait, left edge up | right | left |
+| Tent mode | none (mirrored at 0,0) | none |
 
 ### Verify
 
 ```bash
-sudo systemctl status screen-rotate.service
+systemctl status screen-rotate.service
 journalctl -u screen-rotate.service -f
 ```
 
@@ -960,51 +931,52 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | File | Location | Purpose |
 |------|----------|---------|
 | `install-packages.sh` | repo root | Install all required packages after base Fedora setup |
-| `btreg.py` | `~/scripts/btreg.py` | Extract Windows BT keys for dual boot sync |
-| `rotate-screens.sh` | `/usr/local/bin/rotate-screens.sh` | Rotate both screens based on accelerometer |
+| `btreg.py` | `~/setup/btreg.py` | Extract Windows BT keys for dual boot sync |
+| `yoga9-rotate.py` | `/usr/local/bin/yoga9-rotate.py` | Dual-screen rotation daemon |
+| `make-srpm.sh` | run in place | Build a SRPM for COPR upload |
+| `yoga-book9-rotation.spec` | — | RPM spec for packaging `yoga9-rotate.py` |
 | `dlib.spec` | repo root | RPM spec for building python3-dlib on Fedora 43 |
 | `RPMCleanup.sh` | repo root | Remove build dependencies after howdy setup |
-| `scripts/ingenic-touch-init.py` | `/usr/local/sbin/ingenic-touch-init.py` | CDC init fallback (deprecated — do not use with cdc-acm patch; see README_Touch.md) |
-| `scripts/rebuild-patches.sh` | run in place | Rebuild and reinstall both kernel patches |
+| `touch/ingenic-touch-init.py` | `/usr/local/sbin/ingenic-touch-init.py` | CDC init fallback (deprecated — do not use with cdc-acm patch; see README_Touch.md) |
+| `kernel/rebuild-patches.sh` | run in place | Rebuild and reinstall both kernel patches |
 
 ### Systemd Services
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `screen-rotate.service` | `/etc/systemd/system/screen-rotate.service` | Runs rotation script at boot |
-| `screen-rotate-resume.service` | `/etc/systemd/system/screen-rotate-resume.service` | Restarts rotation service after suspend/resume |
+| `screen-rotate.service` | `/etc/systemd/system/screen-rotate.service` | Runs `yoga9-rotate.py` at login (system service, User=pickles) |
+| `yoga9-rotate.service` | `/usr/lib/systemd/user/` | User service variant for RPM/fresh installs |
 
 ### udev Rules
 
 | File | Purpose |
 |------|---------|
-| `scripts/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | udev rule for CDC init fallback (deprecated — do not install with cdc-acm patch) |
-| `scripts/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/` | Hide emulated touchpad from libinput (fixes OSK freeze) |
+| `61-sensor-yogabook9.rules` → `/etc/udev/rules.d/` | Accelerometer mount matrix fix (replaces broken hwdb approach) |
+| `51-sensor-proxy-yoga9.rules` → `/etc/polkit-1/rules.d/` | Polkit grant for system service to claim accelerometer |
+| `touch/99-ingenic-touch-init.rules` → `/etc/udev/rules.d/` | udev rule for CDC init fallback (deprecated — do not install with cdc-acm patch) |
+| `touch/91-ingenic-emulated-touchpad.rules` → `/etc/udev/rules.d/` | Hide emulated touchpad from libinput (fixes OSK freeze) |
 | `/etc/udev/rules.d/99-wakeup-disable.rules` | Disable XHCI/INGENIC wakeup sources |
-| `/etc/udev/hwdb.d/61-sensor-yogabook9.hwdb` | Accelerometer mount matrix |
 
 ### Kernel Patches and Drivers
 
 | File | Purpose |
 |------|---------|
-| `scripts/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (v2; applied hid/for-next 2026-05-12) |
-| `scripts/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (submitted 2026-05-14) |
-| `scripts/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch: release stale MT slots when firmware sends `CONTACTCOUNT=0` on all-fingers-up |
-| `scripts/v1-0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch stale slots fix upstream submission (submitted 2026-05-15) |
-| `scripts/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
-| `scripts/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35) |
-| `scripts/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog |
-| `scripts/v1-0005-USB-cdc-acm-start-bulk-IN-polling-when-ALWAYS_POLL_CTRL-is-set.patch` | cdc-acm bulk-IN patch upstream submission (submitted 2026-05-15) |
-| `scripts/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
-| `scripts/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v9) |
-| `scripts/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock as a proper in-tree driver with Kconfig/Makefile entries (v6 series patch 2/2; v5 submitted 2026-05-27) |
-| `scripts/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist returning -ENODEV on Yoga Book 9 to prevent duplicate SW_TABLET_MODE node (v6 series patch 1/2) |
+| `kernel/upstream/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (**merged** hid/for-next 2026-05-12) |
+| `kernel/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch: release stale MT slots when firmware sends `CONTACTCOUNT=0` on all-fingers-up |
+| `kernel/upstream/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (**applied** hid/for-next 2026-06-10) |
+| `kernel/sources/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
+| `kernel/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35, kernel 7.1) |
+| `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**merged** usb-next 2026-05-27) |
+| `kernel/sources/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
+| `kernel/sources/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v11, awaiting upstream review) |
+| `kernel/patches/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock driver (v11) |
+| `kernel/patches/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist to prevent duplicate `SW_TABLET_MODE` node on Yoga Book 9 (v11) |
 
 ### HID-BPF (Alternative to Kernel Patch)
 
 | File | Purpose |
 |------|---------|
-| `scripts/0010-INGENIC__Gadget-touchscreen.bpf.c` | BPF descriptor fixup — patches `BTN_LEFT` offsets at runtime without replacing the kernel module |
+| `touch/0010-INGENIC__Gadget-touchscreen.bpf.c` | BPF descriptor fixup — patches `BTN_LEFT` offsets at runtime without replacing the kernel module |
 
 ### Configuration Files
 
@@ -1014,4 +986,4 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `/etc/sddm.conf.d/display.conf` | SDDM Wayland display config |
 | `/var/lib/sddm/.local/share/kscreen/` | SDDM screen layout |
 | `~/.local/share/kscreen/` | KDE screen layout |
-| `scripts/kcminputrc` → `~/.config/kcminputrc` | Touch-to-display output mapping for KWin |
+| `setup/kcminputrc` → `~/.config/kcminputrc` | Touch-to-display output mapping for KWin |
