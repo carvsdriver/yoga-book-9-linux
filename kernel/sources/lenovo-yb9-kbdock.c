@@ -33,9 +33,9 @@
  * SW_TABLET_MODE=0 when docked in either position (keyboard present).
  * The raw BKBD value is exposed via the sysfs attribute "keyboard_position".
  *
- * NOTE: Local build for kernel 7.0.x (Fedora 43).  wmidev_query_block() here
- * takes 3 parameters (no min_size); length is checked manually.  The upstream
- * submission uses the 4-parameter form and .min_event_size in struct wmi_driver.
+ * NOTE: Local build for kernel 7.1.x (Fedora 43).  wmidev_query_block() takes
+ * 4 parameters as of 7.1.3 (added min_size); length check is now done by the
+ * kernel.  Uses the 4-parameter form and .min_event_size in struct wmi_driver.
  *
  * Copyright (C) 2026 Dave Carey <carvsdriver@gmail.com>
  */
@@ -51,6 +51,7 @@
 #include <linux/pm.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/sysfs.h>
 #include <linux/types.h>
 #include <linux/wmi.h>
 
@@ -114,15 +115,12 @@ static int yb9_kbdock_query(struct yb9_kbdock_data *d, u32 *bkbd)
 	struct wmi_buffer out;
 	int ret;
 
-	/* local kernel: 3-param wmidev_query_block, check length manually */
-	ret = wmidev_query_block(d->wdev, 0, &out);
+	ret = wmidev_query_block(d->wdev, 0, &out,
+				 sizeof(struct lenovo_feature_status));
 	if (ret)
 		return ret;
 
 	struct lenovo_feature_status *fs __free(kfree) = out.data;
-
-	if (out.length < sizeof(*fs))
-		return -EIO;
 
 	if (le32_to_cpu(fs->id) != YB9_FEATURE_STATUS_ID)
 		return -EIO;

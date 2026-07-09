@@ -407,6 +407,7 @@ slots active with stale tracking IDs until the next touch. Fixed in
 Patch: **`kernel/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
 
 > **Upstream:** v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review); awaiting review.
+> v2: [lore.kernel.org/linux-input/20260522111527.69428-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260522111527.69428-1-carvsdriver@gmail.com/)
 
 ### Bug 2c: Ghost Contacts from Stale Firmware Slots
 
@@ -416,8 +417,8 @@ ghost contacts on repeated multi-finger gestures. Fixed by adding
 
 Patch: **`kernel/patches/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch`**
 
-> **Upstream:** Submitted 2026-05-14 to linux-input@vger.kernel.org; awaiting
-> review. Depends on Bug 2 fix being applied first.
+> **Upstream:** Applied to hid/for-next 2026-06-10 by Jiri Kosina.
+> v1: [lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/](https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/)
 
 ### Bug 3: Emulated Touchpad Causes On-Screen Keyboard Freezes
 
@@ -508,8 +509,8 @@ will be correct and the script will become a no-op.
 | 0003 ghost contacts fix | `hid-multitouch` | hid/for-next (applied 2026-06-10) | rebuild until kernel ships |
 | 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
 | 0005 cdc-acm bulk-IN polling | `cdc-acm` | usb-next (merged 2026-05-27) | rebuild until kernel ships |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v11 submitted 2026-06-23 — [lore](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/) | rebuild until merged |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v11 submitted 2026-06-23 — [lore](https://lore.kernel.org/all/20260623125914.833063-2-carvsdriver@gmail.com/) | skipped automatically once merged |
+| 0006 yb9-kbdock dock driver | `yb9-kbdock` | v12 submitted 2026-07-08 — [lore](https://lore.kernel.org/all/20260708150909.23404-3-carvsdriver@gmail.com/) | rebuild until merged |
+| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | v12 submitted 2026-07-08 — [lore](https://lore.kernel.org/all/20260708150909.23404-2-carvsdriver@gmail.com/) | skipped automatically once merged |
 
 ---
 
@@ -585,8 +586,8 @@ grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
 sudo evtest /dev/input/eventN
 ```
 
-> **Upstream:** v11 2-patch series submitted 2026-06-23, awaiting review.
-> Cover: [lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/)
+> **Upstream:** v12 2-patch series submitted 2026-07-08, awaiting review.
+> Cover: [lore.kernel.org/all/20260708150909.23404-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260708150909.23404-1-carvsdriver@gmail.com/)
 
 ---
 
@@ -968,9 +969,9 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `kernel/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35, kernel 7.1) |
 | `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**merged** usb-next 2026-05-27) |
 | `kernel/sources/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
-| `kernel/sources/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v11, awaiting upstream review) |
-| `kernel/patches/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock driver (v11) |
-| `kernel/patches/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist to prevent duplicate `SW_TABLET_MODE` node on Yoga Book 9 (v11) |
+| `kernel/sources/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v12, awaiting upstream review) |
+| `kernel/patches/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock driver (v12) |
+| `kernel/patches/0007-platform-x86-lenovo-lenovo-ymc-Skip-Yoga-Book-9.patch` | lenovo-ymc: DMI blocklist to prevent duplicate `SW_TABLET_MODE` node on Yoga Book 9 (v12) |
 
 ### HID-BPF (Alternative to Kernel Patch)
 

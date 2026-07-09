@@ -1,6 +1,19 @@
 From: Dave Carey <carvsdriver@gmail.com>
-Date: Sat, 21 Jun 2026 00:00:00 -0400
-Subject: [PATCH v10 0/2] Lenovo Yoga Book 9 keyboard dock detection
+Date: Tue, 8 Jul 2026 00:00:00 -0400
+Subject: [PATCH v12 0/2] Lenovo Yoga Book 9 keyboard dock detection
+
+Changes in v12 (addressing Ilpo Järvinen's v11 review of patch 2/2):
+
+  - Add #include <linux/sysfs.h> (for sysfs_emit)
+  - Add #include <linux/types.h> (for __le32 and __packed)
+
+Changes in v11 (addressing Armin Wolf's v10 review of patch 2/2):
+
+  - ABI doc: correct Date to "June 2027" and KernelVersion to "7.3";
+    these fields should reflect when the ABI lands in the kernel, not
+    the submission date.
+
+Patch 1/2 (lenovo-ymc) is unchanged from v10.
 
 Changes in v10 (addressing Armin Wolf's v9 review of patch 2/2):
 

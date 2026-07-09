@@ -321,15 +321,21 @@ fi
 # --------------------------------------------------------------------------
 # 13. Restart touchpad daemon
 # --------------------------------------------------------------------------
-if systemctl --user cat plasma-touchpad.service &>/dev/null; then
-    echo "==> Restarting plasma-touchpad-daemon via systemd..."
-    systemctl --user restart plasma-touchpad.service
+# When running under sudo, systemctl --user targets root's (non-graphical)
+# session.  Use SUDO_USER + XDG_RUNTIME_DIR to reach the actual user's bus.
+_SC_USER="${SUDO_USER:-${USER}}"
+_SC_UID="$(id -u "${_SC_USER}" 2>/dev/null || echo "")"
+_sc() { XDG_RUNTIME_DIR="/run/user/${_SC_UID}" sudo -u "${_SC_USER}" systemctl --user "$@"; }
+
+if _sc cat plasma-touchpad.service &>/dev/null; then
+    echo "==> Restarting plasma-touchpad-daemon via systemd (user: ${_SC_USER})..."
+    _sc restart plasma-touchpad.service
     sleep 0.5
-    if systemctl --user is-active --quiet plasma-touchpad.service; then
+    if _sc is-active --quiet plasma-touchpad.service; then
         echo "    plasma-touchpad.service active"
     else
         echo "    WARNING: plasma-touchpad.service failed to start"
-        systemctl --user status plasma-touchpad.service --no-pager || true
+        _sc status plasma-touchpad.service --no-pager || true
     fi
 else
     echo "    Skipping daemon restart: plasma-touchpad.service not found"

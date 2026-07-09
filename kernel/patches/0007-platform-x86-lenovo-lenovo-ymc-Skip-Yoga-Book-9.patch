@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
 From: Dave Carey <carvsdriver@gmail.com>
-Date: Mon, 8 Jun 2026 00:00:00 -0400
-Subject: [PATCH v10 1/2] platform/x86/lenovo: lenovo-ymc: Suppress probe on
+Date: Tue, 8 Jul 2026 00:00:00 -0400
+Subject: [PATCH v12 1/2] platform/x86/lenovo: lenovo-ymc: Suppress probe on
  Yoga Book 9 14IAH10
 
 The Yoga Book 9 14IAH10 (DMI product name "83KJ") has a dedicated

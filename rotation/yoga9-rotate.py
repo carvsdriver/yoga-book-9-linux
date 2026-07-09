@@ -41,12 +41,14 @@ KBDOCK_GLOB = (
     "keyboard_position"
 )
 
-# HID collection indices .12 / .13 are stable hardware descriptors.
-# Display accel = .12 (top screen section), base accel = .13 (bottom section).
+# HID collection indices for the two accelerometers.
+# Kernel 7.1.3 renumbered these from .12/.13 to .7/.8.
+# Display accel = .7 (top screen, iio:device0 — iio-sensor-proxy primary).
+# Base accel    = .8 (bottom screen, iio:device2 — tent mode Y-axis only).
 # We enumerate /sys/bus/iio/devices/ (small, < 10 entries) and resolve symlinks
 # to find the physical path — avoids a slow recursive glob over /sys/devices/.
-DISPLAY_ACCEL_SUFFIX = "HID-SENSOR-200073.12.auto"
-BASE_ACCEL_SUFFIX    = "HID-SENSOR-200073.13.auto"
+DISPLAY_ACCEL_SUFFIX = "HID-SENSOR-200073.7.auto"
+BASE_ACCEL_SUFFIX    = "HID-SENSOR-200073.8.auto"
 
 # Maps orientation state names to (eDP-1 rotation, position), (eDP-2 rotation, position).
 # eDP-1 is physically mounted upside-down so every rotation is the mirror of eDP-2.
