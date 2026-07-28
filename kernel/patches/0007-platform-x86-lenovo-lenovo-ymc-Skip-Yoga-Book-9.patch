@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From 1a492de2b32083cf623edf7b9af35de5d96716a4 Mon Sep 17 00:00:00 2001
 From: Dave Carey <carvsdriver@gmail.com>
-Date: Tue, 8 Jul 2026 00:00:00 -0400
-Subject: [PATCH v12 1/2] platform/x86/lenovo: lenovo-ymc: Suppress probe on
- Yoga Book 9 14IAH10
+Date: Wed, 22 Jul 2026 09:53:56 -0400
+Subject: [PATCH v15 1/2] platform/x86/lenovo: lenovo-ymc: Suppress probe on Yoga Book
+ 9 14IAH10
 
 The Yoga Book 9 14IAH10 (DMI product name "83KJ") has a dedicated
 yb9-kbdock WMI driver that registers an input device reporting
@@ -26,13 +26,13 @@ Signed-off-by: Dave Carey <carvsdriver@gmail.com>
  1 file changed, 19 insertions(+)
 
 diff --git a/drivers/platform/x86/lenovo/ymc.c b/drivers/platform/x86/lenovo/ymc.c
+index 470d53e3c9d2..a13c89dcb285 100644
 --- a/drivers/platform/x86/lenovo/ymc.c
 +++ b/drivers/platform/x86/lenovo/ymc.c
-@@ -23,7 +23,23 @@ module_param(force, bool, 0444);
- static bool force;
+@@ -24,6 +24,22 @@ static bool force;
  module_param(force, bool, 0444);
  MODULE_PARM_DESC(force, "Force loading on boards without a convertible DMI chassis-type");
-
+ 
 +static const struct dmi_system_id lenovo_ymc_nosupport_dmi_table[] = {
 +	{
 +		/*
@@ -52,16 +52,16 @@ diff --git a/drivers/platform/x86/lenovo/ymc.c b/drivers/platform/x86/lenovo/ymc
  static const struct dmi_system_id allowed_chasis_types_dmi_table[] = {
  	{
  		.matches = {
-@@ -100,7 +116,10 @@ static int lenovo_ymc_probe(struct wmi_device *wdev, const void *ctx)
- 	struct lenovo_ymc_private *priv;
+@@ -101,6 +117,9 @@ static int lenovo_ymc_probe(struct wmi_device *wdev, const void *ctx)
  	struct input_dev *input_dev;
  	int err;
-
+ 
 +	if (dmi_check_system(lenovo_ymc_nosupport_dmi_table))
 +		return -ENODEV;
 +
  	if (!dmi_check_system(allowed_chasis_types_dmi_table)) {
  		if (force)
  			dev_info(&wdev->dev, "Force loading Lenovo YMC support\n");
---
-2.54.0
+-- 
+2.55.0
+

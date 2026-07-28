@@ -5,25 +5,27 @@
 # for both devices.  This rules file matches on DEVPATH instead, which includes
 # the stable HID collection index (.12 / .13).
 #
-# Correct matrix for both: negate X only (-1,0,0; 0,1,0; 0,0,1).
-# Verified by hardware test 2026-06-25 (indices .12/.13, kernel 7.0.x):
-#   - Portrait tablet top-up:  raw_y positive → "normal"
-#   - Portrait tablet bottom-up: raw_y negative → "bottom-up"
-#   - Landscape right-up: raw_x negative → corr_x positive → "right-up"
-#   - Landscape left-up:  raw_x positive → corr_x negative → "left-up"
+# Correct matrix: negate X and Y (-1,0,0; 0,-1,0; 0,0,1).
 #
-# NOTE: kernel 7.1.3 renumbered HID collection indices from .12/.13 to .7/.8.
-# Scale also changed: 1G ≈ 1,000,000 raw (was ≈1,031); in_accel_scale=9.806e-6.
+# The display sensor (device0, .12) is physically inverted (mounted upside-down
+# in the top screen lid).  In all landscape use cases (laptop open, kickstand
+# dual-screen mode), the sensor raw Y reads ≈ -1G.  Without Y negation,
+# iio-sensor-proxy sees corrected_y < 0 → "bottom-up", producing wrong rotation.
+# Negating Y gives corrected_y ≈ +1G → "normal", which drives the correct
+# kscreen rotation (eDP-1 "inverted", eDP-2 "none").
 #
-# Supersedes /etc/udev/hwdb.d/61-sensor-yogabook9.hwdb (which has the bug
-# but is left in place so it can be submitted upstream with corrections).
+# The base sensor (device2, .13) matrix is irrelevant for orientation (iio-sensor-proxy
+# uses the lower-numbered device0 as primary) and irrelevant for tent mode
+# (yoga9-rotate reads in_accel_y_raw directly, bypassing the mount matrix).
+#
+# Supersedes /etc/udev/hwdb.d/61-sensor-yogabook9.hwdb (same matrix, kept
+# for upstream submission reference).
+#
+# HID collection indices were .7/.8 on an intermediate kernel 7.1.3 build;
+# they reverted to .12/.13 on kernel 7.1.3-100.fc43.
 
-# Top screen section (eDP-1, iio:device0) — used by iio-sensor-proxy as primary
-SUBSYSTEM=="iio", DEVPATH=="*HID-SENSOR-200073.7*", \
-    ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, 1, 0; 0, 0, 1"
-
-# Base/bottom section (eDP-2, iio:device2)
-# iio-sensor-proxy selects the lower-numbered device (.7 = iio:device0) as
-# primary, so .8 does not interfere.  yoga9-rotate reads .8 Y-axis for tent mode.
-SUBSYSTEM=="iio", DEVPATH=="*HID-SENSOR-200073.8*", \
-    ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, 1, 0; 0, 0, 1"
+# Both accel IIO devices — same matrix regardless of HID collection index.
+# The wildcard before .auto matches any kernel-assigned collection number
+# (.7/.8, .12/.13, etc.) so this survives kernel renumbering.
+SUBSYSTEM=="iio", DEVPATH=="*HID-SENSOR-200073.*.auto*", \
+    ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, -1, 0; 0, 0, 1"

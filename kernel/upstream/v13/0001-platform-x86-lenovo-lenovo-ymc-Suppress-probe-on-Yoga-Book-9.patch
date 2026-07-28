@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Tue, 8 Jul 2026 00:00:00 -0400
+Subject: [PATCH v13 1/2] platform/x86/lenovo: lenovo-ymc: Suppress probe on
+ Yoga Book 9 14IAH10
+
+The Yoga Book 9 14IAH10 (DMI product name "83KJ") has a dedicated
+yb9-kbdock WMI driver that registers an input device reporting
+SW_TABLET_MODE to track the detachable Bluetooth keyboard.
+
+lenovo-ymc also loads on this machine and creates an input node with the
+SW_TABLET_MODE capability bit set.  For input switches, the presence of
+the capability bit has semantic meaning: userspace (e.g. GNOME) reads
+the switch state at startup from every node advertising the capability
+and does not expect more than one such node.
+
+Add a DMI match for the Yoga Book 9 14IAH10 to probe() so that
+lenovo-ymc returns -ENODEV on this hardware, leaving yb9-kbdock as the
+sole SW_TABLET_MODE source.  The ymc_ec_trigger EC write, the only
+other action taken in response to a YMC event, is guarded by a separate
+DMI table that excludes this machine; no other functionality is affected.
+
+Signed-off-by: Dave Carey <carvsdriver@gmail.com>
+---
+ drivers/platform/x86/lenovo/ymc.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/platform/x86/lenovo/ymc.c b/drivers/platform/x86/lenovo/ymc.c
+--- a/drivers/platform/x86/lenovo/ymc.c
++++ b/drivers/platform/x86/lenovo/ymc.c
+@@ -23,7 +23,23 @@ module_param(force, bool, 0444);
+ static bool force;
+ module_param(force, bool, 0444);
+ MODULE_PARM_DESC(force, "Force loading on boards without a convertible DMI chassis-type");
+
++static const struct dmi_system_id lenovo_ymc_nosupport_dmi_table[] = {
++	{
++		/*
++		 * Yoga Book 9 14IAH10: SW_TABLET_MODE is reported by the
++		 * yb9-kbdock driver.  Suppress lenovo-ymc on this machine to
++		 * avoid userspace seeing two input nodes that both advertise
++		 * the SW_TABLET_MODE capability.
++		 */
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "83KJ"),
++		},
++	},
++	{ }
++};
++
+ static const struct dmi_system_id allowed_chasis_types_dmi_table[] = {
+ 	{
+ 		.matches = {
+@@ -100,7 +116,10 @@ static int lenovo_ymc_probe(struct wmi_device *wdev, const void *ctx)
+ 	struct lenovo_ymc_private *priv;
+ 	struct input_dev *input_dev;
+ 	int err;
+
++	if (dmi_check_system(lenovo_ymc_nosupport_dmi_table))
++		return -ENODEV;
++
+ 	if (!dmi_check_system(allowed_chasis_types_dmi_table)) {
+ 		if (force)
+ 			dev_info(&wdev->dev, "Force loading Lenovo YMC support\n");
+--
+2.54.0

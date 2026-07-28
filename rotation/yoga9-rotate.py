@@ -37,18 +37,15 @@ TENT_Y_THRESHOLD = 100000
 # WMI sysfs for the keyboard dock driver.  Absent if driver not loaded.
 KBDOCK_GLOB = (
     "/sys/bus/wmi/devices/"
-    "806BD2A2-177B-481D-BFB5-3BA0BB4A2285-*/"
+    "E7F300FA-21CD-4003-ADAC-2696135982E6-*/"
     "keyboard_position"
 )
 
-# HID collection indices for the two accelerometers.
-# Kernel 7.1.3 renumbered these from .12/.13 to .7/.8.
-# Display accel = .7 (top screen, iio:device0 — iio-sensor-proxy primary).
-# Base accel    = .8 (bottom screen, iio:device2 — tent mode Y-axis only).
-# We enumerate /sys/bus/iio/devices/ (small, < 10 entries) and resolve symlinks
-# to find the physical path — avoids a slow recursive glob over /sys/devices/.
-DISPLAY_ACCEL_SUFFIX = "HID-SENSOR-200073.7.auto"
-BASE_ACCEL_SUFFIX    = "HID-SENSOR-200073.8.auto"
+# Common path fragment for both accelerometers.  We do not hardcode the HID
+# collection index (the number between the last two dots) because the kernel
+# renumbers those across versions.  find_accel_paths() sorts by realpath so the
+# lower-indexed collection (display/top screen) comes first consistently.
+ACCEL_HID_PREFIX = "HID-SENSOR-200073."
 
 # Maps orientation state names to (eDP-1 rotation, position), (eDP-2 rotation, position).
 # eDP-1 is physically mounted upside-down so every rotation is the mirror of eDP-2.
@@ -68,19 +65,29 @@ ROTATIONS = {
 log = logging.getLogger("yoga9-rotate")
 
 
-def find_accel_y_by_suffix(suffix):
-    """Return in_accel_y_raw path for the IIO accel whose realpath contains suffix."""
+def find_accel_y_paths():
+    """Return (display_y, base_y) in_accel_y_raw paths for the two HID accels.
+
+    Sorted by realpath so the lower HID collection index (display/top screen)
+    is always first regardless of kernel-assigned numbering.
+    """
+    matches = []
     for dev in sorted(glob.glob("/sys/bus/iio/devices/iio:device*")):
         try:
             if open(os.path.join(dev, "name")).read().strip() != "accel_3d":
                 continue
         except OSError:
             continue
-        if suffix in os.path.realpath(dev):
-            y_path = os.path.join(dev, "in_accel_y_raw")
-            if os.path.exists(y_path):
-                return y_path
-    return None
+        rp = os.path.realpath(dev)
+        if ACCEL_HID_PREFIX not in rp:
+            continue
+        y_path = os.path.join(dev, "in_accel_y_raw")
+        if os.path.exists(y_path):
+            matches.append((rp, y_path))
+    matches.sort()
+    paths = [y for _, y in matches]
+    return (paths[0] if len(paths) > 0 else None,
+            paths[1] if len(paths) > 1 else None)
 
 
 def read_int(path):
@@ -136,8 +143,7 @@ class RotationDaemon:
     # Tent mode — sysfs polling, no iio-sensor-proxy patch required
 
     def _find_accel_paths(self):
-        self._display_y = find_accel_y_by_suffix(DISPLAY_ACCEL_SUFFIX)
-        self._base_y    = find_accel_y_by_suffix(BASE_ACCEL_SUFFIX)
+        self._display_y, self._base_y = find_accel_y_paths()
         if self._display_y and self._base_y:
             log.info("Tent mode enabled: display_y=%s  base_y=%s",
                      self._display_y, self._base_y)
@@ -175,6 +181,15 @@ class RotationDaemon:
         if self.tent_mode:
             return "tent"
         o = self.orientation
+        # The display accelerometer is physically inverted (mounted upside-down
+        # in the top screen lid).  iio-sensor-proxy reports "bottom-up" when the
+        # device is upright (normal use) and "normal" when it is inverted.
+        # Swap those two labels so the ROTATIONS table and kbdock override remain
+        # semantically correct.
+        if o == "normal":
+            o = "bottom-up"
+        elif o == "bottom-up":
+            o = "normal"
         return o if o in ROTATIONS else "normal"
 
     def _schedule(self, state):

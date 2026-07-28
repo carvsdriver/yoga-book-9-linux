@@ -16,8 +16,8 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Merged to mainline** 2026-05-28 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 — [lore](https://lore.kernel.org/linux-input/20260522111527.69428-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Applied to hid/for-next** 2026-06-10 (Jiri Kosina) — [lore](https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/) |
-| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v12 submitted 2026-07-08 — [lore.kernel.org/all/20260708150909.23404-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260708150909.23404-2-carvsdriver@gmail.com/) |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v12 submitted 2026-07-08 — [lore.kernel.org/all/20260708150909.23404-3-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260708150909.23404-3-carvsdriver@gmail.com/) |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/) |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/) |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
@@ -25,8 +25,15 @@ in kernel 7.1. The hid-multitouch misclassification fix (v2) merged to Linus
 mainline 2026-05-28. The ghost contacts fix (Honor ContactCount) was applied
 to hid/for-next 2026-06-10 (Jiri Kosina). The stale-slots fix (v2, 2026-05-22)
 is awaiting review. The keyboard dock driver
-(yb9-kbdock) and companion lenovo-ymc fix were submitted as a v12 2-patch series
-on 2026-07-08 ([lore.kernel.org](https://lore.kernel.org/all/20260708150909.23404-1-carvsdriver@gmail.com/)).
+(yb9-kbdock) and companion lenovo-ymc fix are now at v15 (2026-07-28)
+([lore.kernel.org](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/)).
+v15 restores .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and
+removes the manual buffer-length check in yb9_kbdock_notify_new(), which was
+accidentally dropped in v14 (Ilpo Järvinen).
+v14 (2026-07-22): restores v10 structural changes (spinlock, pointer-out query,
+error propagation, compiler_attributes.h, spinlock.h) absent from v13.
+v13 (2026-07-22): resend of v12 with sendemail.transferEncoding=8bit to fix
+quoted-printable corruption of RST '=' characters. No content changes from v12.
 v12 adds #include <linux/sysfs.h> and #include <linux/types.h> per Ilpo Järvinen's
 v11 review. Patch 1/2 (lenovo-ymc) unchanged from v10.
 v11 submitted 2026-06-23; fixes ABI doc Date/KernelVersion per Armin Wolf; carries
@@ -878,12 +885,40 @@ Submitted to `platform-driver-x86@vger.kernel.org` as part of
     Message-ID: `<20260623125914.833063-3-carvsdriver@gmail.com>`
   Cover: https://lore.kernel.org/all/20260623125914.833063-1-carvsdriver@gmail.com/
 
-**v12** (2-patch series) — submitted 2026-07-08; awaiting review.
+**v12** (2-patch series) — submitted 2026-07-13; awaiting review. (Resent into own thread per Ilpo Järvinen.)
   - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
-    Message-ID: `<20260708150909.23404-2-carvsdriver@gmail.com>`
+    Message-ID: `<20260713143132.381808-2-carvsdriver@gmail.com>`
   - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
-    Message-ID: `<20260708150909.23404-3-carvsdriver@gmail.com>`
-  Cover: https://lore.kernel.org/all/20260708150909.23404-1-carvsdriver@gmail.com/
+    Message-ID: `<20260713143132.381808-3-carvsdriver@gmail.com>`
+  Cover: https://lore.kernel.org/all/20260713143132.381808-1-carvsdriver@gmail.com/
+
+**v13** (2-patch series) — submitted 2026-07-22; resend of v12 with sendemail.transferEncoding=8bit
+  to fix quoted-printable corruption of RST '=' characters. No content changes from v12.
+  - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
+    Message-ID: `<20260722142712.814597-2-carvsdriver@gmail.com>`
+  - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
+    Message-ID: `<20260722142712.814597-3-carvsdriver@gmail.com>`
+  Cover: https://lore.kernel.org/all/20260722142712.814597-1-carvsdriver@gmail.com/
+
+**v14** (2-patch series) — submitted 2026-07-22; addressing Ilpo Järvinen's v13 review.
+  Restores v10 structural changes absent from v13: compiler_attributes.h, spinlock.h,
+  spinlock_t lock, spin_lock_init(), spin_lock/unlock, pointer-out yb9_kbdock_query(),
+  int return from yb9_kbdock_sync() with error propagation in resume and probe.
+  - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
+    Message-ID: `<20260722201659.874469-2-carvsdriver@gmail.com>`
+  - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
+    Message-ID: `<20260722201659.874469-3-carvsdriver@gmail.com>`
+  Cover: https://lore.kernel.org/all/20260722201659.874469-1-carvsdriver@gmail.com/
+
+**v15** (2-patch series) — submitted 2026-07-28; addressing Ilpo Järvinen's v14 review.
+  Restores .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and removes
+  the manual buffer-length check in yb9_kbdock_notify_new(), accidentally dropped in v14.
+  Patch 1/2 (lenovo-ymc) unchanged from v10.
+  - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
+    Message-ID: `<20260728225545.1333610-2-carvsdriver@gmail.com>`
+  - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
+    Message-ID: `<20260728225545.1333610-3-carvsdriver@gmail.com>`
+  Cover: https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/
 
 ### Files
 

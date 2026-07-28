@@ -34,8 +34,9 @@
  * The raw BKBD value is exposed via the sysfs attribute "keyboard_position".
  *
  * NOTE: Local build for kernel 7.1.x (Fedora 43).  wmidev_query_block() takes
- * 4 parameters as of 7.1.3 (added min_size); length check is now done by the
- * kernel.  Uses the 4-parameter form and .min_event_size in struct wmi_driver.
+ * 4 parameters as of 7.1.3 (added min_size); uses the 4-parameter form.
+ * Local kernel lacks .min_event_size in struct wmi_driver; manual length check
+ * is used in yb9_kbdock_notify_new() instead (upstream uses .min_event_size).
  *
  * Copyright (C) 2026 Dave Carey <carvsdriver@gmail.com>
  */

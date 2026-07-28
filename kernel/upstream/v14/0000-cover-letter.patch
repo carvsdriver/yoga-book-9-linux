@@ -1,0 +1,68 @@
+From: Dave Carey <carvsdriver@gmail.com>
+Date: Wed, 22 Jul 2026 00:00:00 -0400
+Subject: [PATCH v14 0/2] Lenovo Yoga Book 9 keyboard dock detection
+
+Changes in v14 (addressing Ilpo Järvinen's v13 review of patch 2/2):
+
+  - Restore #include <linux/compiler_attributes.h> and <linux/spinlock.h>,
+    which were accidentally absent from v13.
+  - Restore spinlock_t lock in struct yb9_kbdock_data, spin_lock_init(),
+    and spin_lock/spin_unlock around input_report_switch + input_sync
+    in yb9_kbdock_report().
+  - Restore pointer-out yb9_kbdock_query(d, u32 *bkbd) and removal of
+    zero-initializer from struct wmi_buffer out.
+  - Restore int return from yb9_kbdock_sync() and error propagation in
+    yb9_kbdock_resume() and yb9_kbdock_block_probe().
+
+Changes in v13:
+
+  - Resend of v12: v12 was corrupted in transit.  Root cause: the ABI
+    documentation uses RST table separator lines (==  ====...) which
+    contain '=' characters; git-send-email selected quoted-printable
+    transfer encoding due to non-ASCII in the changelog (UTF-8 author
+    name), encoding '=' as '=3D' and breaking git-am on the receiving
+    end.  Fixed by setting sendemail.transferEncoding=8bit.  No content
+    changes from v12.
+
+Changes in v12 (addressing Ilpo Järvinen's v11 review of patch 2/2):
+
+  - Add #include <linux/sysfs.h> (for sysfs_emit)
+  - Add #include <linux/types.h> (for __le32 and __packed)
+
+Changes in v11 (addressing Armin Wolf's v10 review of patch 2/2):
+
+  - ABI doc: correct Date to "June 2027" and KernelVersion to "7.3";
+    these fields should reflect when the ABI lands in the kernel, not
+    the submission date.
+
+Patch 1/2 (lenovo-ymc) is unchanged from v10.
+
+Changes in v10 (addressing Armin Wolf's v9 review of patch 2/2):
+
+  - Update ABI doc: Date: June 2026, KernelVersion: 6.16
+  - Add #include <linux/compiler_attributes.h> and <linux/types.h>
+  - yb9_kbdock_query(): change return to pointer-out u32 *bkbd to avoid
+    a 0xFFFFFFFF status value being misread as -EPERM
+  - struct yb9_kbdock_data: add spinlock_t lock
+  - yb9_kbdock_report(): hold lock across input_report_switch + input_sync
+  - yb9_kbdock_sync(): return int, propagate query error to callers
+  - yb9_kbdock_resume(), yb9_kbdock_block_probe(): propagate sync error
+  - struct wmi_buffer out: remove zero-initializer (not needed)
+  - yb9_kbdock_notify_new(): drop manual length check; use
+    .min_event_size = sizeof(__le32) in struct wmi_driver instead
+
+Patch 1/2 (lenovo-ymc) is unchanged from v9.
+
+Dave Carey (2):
+  platform/x86/lenovo: lenovo-ymc: Suppress probe on Yoga Book 9 14IAH10
+  platform/x86/lenovo: Add Yoga Book 9 keyboard dock detection driver
+
+ Documentation/ABI/testing/sysfs-driver-lenovo-yb9-kbdock |  19 ++
+ MAINTAINERS                                               |   7 +
+ drivers/platform/x86/lenovo/Kconfig                       |  14 +
+ drivers/platform/x86/lenovo/Makefile                      |   1 +
+ drivers/platform/x86/lenovo/yb9-kbdock.c                  | 324 ++++++++++++
+ drivers/platform/x86/lenovo/ymc.c                         |  19 ++
+ 6 files changed, 384 insertions(+)
+
+2.55.0

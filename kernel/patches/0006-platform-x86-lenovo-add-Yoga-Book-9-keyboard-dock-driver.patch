@@ -1,6 +1,6 @@
 From: Dave Carey <carvsdriver@gmail.com>
-Date: Tue, 8 Jul 2026
-Subject: [PATCH v12 2/2] platform/x86/lenovo: Add Yoga Book 9 keyboard dock
+Date: Mon, 28 Jul 2026
+Subject: [PATCH v15 2/2] platform/x86/lenovo: Add Yoga Book 9 keyboard dock
  detection driver
 
 The Lenovo Yoga Book 9 14IAH10 ships with a detachable Bluetooth keyboard
