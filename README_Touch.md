@@ -14,7 +14,7 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
 | `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Merged to mainline** 2026-05-28 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v1 submitted 2026-05-15; v2 submitted 2026-05-22 — [lore](https://lore.kernel.org/linux-input/20260522111527.69428-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v3 submitted 2026-07-30 — [lore](https://lore.kernel.org/linux-input/20260730124336.637339-1-carvsdriver@gmail.com/) |
 | `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Applied to hid/for-next** 2026-06-10 (Jiri Kosina) — [lore](https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/) |
 | `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/) |
 | `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/) |
@@ -23,8 +23,8 @@ Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
 in kernel 7.1. The hid-multitouch misclassification fix (v2) merged to Linus
 mainline 2026-05-28. The ghost contacts fix (Honor ContactCount) was applied
-to hid/for-next 2026-06-10 (Jiri Kosina). The stale-slots fix (v2, 2026-05-22)
-is awaiting review. The keyboard dock driver
+to hid/for-next 2026-06-10 (Jiri Kosina). The stale-slots fix (v3, 2026-07-30)
+is awaiting review (v2 was sent with wrong subject format and not recognized by maintainers). The keyboard dock driver
 (yb9-kbdock) and companion lenovo-ymc fix are now at v15 (2026-07-28)
 ([lore.kernel.org](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/)).
 v15 restores .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and
@@ -581,9 +581,8 @@ lore: https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-s
 Stale-slots fix: v1 submitted 2026-05-15, v2 submitted 2026-05-22 (restructured
 contact_count block per bentiss review; adds prev_scantime guard).
 v1 Message-ID: <20260515175253.873796-1-carvsdriver@gmail.com>
-v2 Message-ID: <20260522111527.69428-1-carvsdriver@gmail.com>
-Note: v2 subject sent as "[PATCH 2/5]" due to embedded Subject: header; threading
-is correct (In-Reply-To v1).
+v2 Message-ID: <20260522111527.69428-1-carvsdriver@gmail.com> (sent as "[PATCH 2/5]" — not recognized as v2 by maintainers)
+v3 Message-ID: <20260730124336.637339-1-carvsdriver@gmail.com> (standalone [PATCH v3], requested by Benjamin Tissoires)
 
 ### Kernel Module Install (Until Patch Upstreamed)
 
