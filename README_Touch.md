@@ -14,21 +14,25 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
 | `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
 | `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Merged to mainline** 2026-05-28 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | v3 submitted 2026-07-30 — [lore](https://lore.kernel.org/linux-input/20260730124336.637339-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Applied to hid/for-next** 2026-06-10 (Jiri Kosina) — [lore](https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/) |
-| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-2-carvsdriver@gmail.com/) |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | v15 submitted 2026-07-28 — [lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-3-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | **Applied to hid/for-next** 2026-08-25 (Benjamin Tissoires) — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Linux 7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | **Linux 7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | **Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship
 in kernel 7.1. The hid-multitouch misclassification fix (v2) merged to Linus
 mainline 2026-05-28. The ghost contacts fix (Honor ContactCount) was applied
-to hid/for-next 2026-06-10 (Jiri Kosina). The stale-slots fix (v3, 2026-07-30)
-is awaiting review (v2 was sent with wrong subject format and not recognized by maintainers). The keyboard dock driver
-(yb9-kbdock) and companion lenovo-ymc fix are now at v15 (2026-07-28)
-([lore.kernel.org](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/)).
-v15 restores .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and
-removes the manual buffer-length check in yb9_kbdock_notify_new(), which was
+to hid/for-next 2026-06-10 (Jiri Kosina) and is **in Linux 7.3-rc1** ([ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e)). The stale-slots fix (v3) was applied
+to hid/for-next 2026-08-25 by Benjamin Tissoires (commit e8e60b6439ee), targeting 7.3 final. The keyboard dock driver
+(yb9-kbdock) and companion lenovo-ymc fix (v15, 2026-07-28) are **in Linux 7.3-rc1**
+([c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d), [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f)), applied to
+pdx86/for-next 2026-08-03 by Ilpo Järvinen, with Hans de Goede's
+Reviewed-by tag reinstated
+([lore.kernel.org](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/);
+applied notification Message-ID: `<369a1d84-f6a2-1075-b62e-c1852ae25894@linux.intel.com>`).
+v15 restored .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and
+removed the manual buffer-length check in yb9_kbdock_notify_new(), which was
 accidentally dropped in v14 (Ilpo Järvinen).
 v14 (2026-07-22): restores v10 structural changes (spinlock, pointer-out query,
 error propagation, compiler_attributes.h, spinlock.h) absent from v13.
@@ -528,7 +532,7 @@ consumed, discarding the stale entries per HID specification section 17.
 by this guard are released via `INPUT_MT_DROP_UNUSED` at frame sync.
 
 Submitted 2026-05-14 to linux-input@vger.kernel.org as a follow-up to v2;
-applied to hid/for-next 2026-06-10 (Jiri Kosina).
+applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.3-rc1**.
 
 ### Result
 
@@ -567,14 +571,14 @@ v2 submitted 2026-04-13. Implements the descriptor fixup approach as requested:
 `mt_yogabook9_fixup()` called from `mt_report_fixup()` drops the HID_DG_TOUCHPAD
 collection, neutralizes Win8 blob / ContactMax / SurfaceSwitch / ButtonSwitch
 GET/SET_REPORT triggers, and retains Input Mode for ghost contact clearing.
-**Applied** to hid/for-next by Jiri Kosina 2026-05-12.
+**Applied** to hid/for-next by Jiri Kosina 2026-05-12; **in Linux 7.3-rc1**.
 
 Ghost contact patch (v1) submitted 2026-05-14 as a follow-up; depends on v2.
 
 Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
-Ghost contact patch: submitted 2026-05-14; applied to hid/for-next 2026-06-10 (Jiri Kosina)
+Ghost contact patch: submitted 2026-05-14; applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.3-rc1** ([ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e))
 Message-ID: <CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com>
 lore: https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/
 
@@ -913,6 +917,9 @@ Submitted to `platform-driver-x86@vger.kernel.org` as part of
   Restores .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and removes
   the manual buffer-length check in yb9_kbdock_notify_new(), accidentally dropped in v14.
   Patch 1/2 (lenovo-ymc) unchanged from v10.
+  **Applied to pdx86/for-next 2026-08-03** (Ilpo Järvinen; Hans de Goede's
+  Reviewed-by reinstated); **in Linux 7.3-rc1**. Applied notification Message-ID:
+  `<369a1d84-f6a2-1075-b62e-c1852ae25894@linux.intel.com>`
   - Patch 1/2: `lenovo-ymc`: Suppress probe on Yoga Book 9 14IAH10
     Message-ID: `<20260728225545.1333610-2-carvsdriver@gmail.com>`
   - Patch 2/2: `lenovo-yb9-kbdock`: Add Yoga Book 9 keyboard dock detection driver
