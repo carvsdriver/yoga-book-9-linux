@@ -9,15 +9,15 @@ on the Lenovo Yoga Book 9 14IAH10 (83KJ) running Fedora 43 / Linux 6.19.
 
 Kernel patches have been submitted to the Linux kernel mailing lists:
 
-| Patch | List | Link |
-|-------|------|------|
-| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 (0002) | linux-usb | **Merged to mainline** 2026-04-19 (v7.1-rc1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set (0005) | linux-usb | **Merged to usb-next** 2026-05-27 (Greg KH) — will be in next major release |
-| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification (v2) | linux-input | **Merged to mainline** 2026-05-28 — [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | linux-input | **Applied to hid/for-next** 2026-08-25 (Benjamin Tissoires) — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | linux-input | **Linux 7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
-| `lenovo-ymc`: Suppress probe on Yoga Book 9 (yb9-kbdock owns SW_TABLET_MODE) | platform-driver-x86 | **Linux 7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
-| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | platform-driver-x86 | **Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
+| Patch | Status |
+|-------|--------|
+| `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | ✅ mainline (7.1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set | ✅ **7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | ✅ mainline (7.1) — [lore](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | 🟡 hid/for-next (2026-08-25, bentiss) → 7.3 final — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | ✅ **7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
+| `lenovo-ymc`: Suppress probe on Yoga Book 9 | ✅ **7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
+| `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
 
 Until all patches land in a released kernel, the out-of-tree build instructions
 below are required. The cdc-acm quirk patch is merged to mainline and will ship

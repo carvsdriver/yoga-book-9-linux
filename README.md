@@ -379,7 +379,7 @@ and **`kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
 > **Upstream (0004):** Merged 2026-04-19; ships in kernel 7.1.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
 >
-> **Upstream (0005):** Merged to usb-next 2026-05-27 (Greg KH); will ship in next major release.
+> **Upstream (0005):** Merged to usb-next 2026-05-27 (Greg KH); **in Linux 7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e).
 
 > **Note:** A udev/Python fallback (`99-ingenic-touch-init.rules` +
 > `ingenic-touch-init.py`) is retained for reference only. Do not install it
@@ -501,15 +501,15 @@ will be correct and the script will become a no-op.
 
 **Current patch / kernel status:**
 
-| Patch | Module | Merged in | Action needed on DNF update |
-|-------|--------|-----------|------------------------------|
-| 0001 hid-multitouch descriptor fixup | `hid-multitouch` | **mainline** (merged 2026-05-28) | skipped automatically once kernel ships |
-| 0002 stale MT slots fix | `hid-multitouch` | **applied to hid/for-next** 2026-08-25 (Benjamin Tissoires) | rebuild until kernel ships |
-| 0003 ghost contacts fix | `hid-multitouch` | **Linux 7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) | rebuild until 7.3 ships |
-| 0004 cdc-acm INGENIC quirk | `cdc-acm` | kernel 7.1 | skipped automatically on 7.1+ |
-| 0005 cdc-acm bulk-IN polling | `cdc-acm` | usb-next (merged 2026-05-27) | rebuild until kernel ships |
-| 0006 yb9-kbdock dock driver | `yb9-kbdock` | **Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) | rebuild until 7.3 ships |
-| 0007 lenovo-ymc suppress probe | `lenovo-ymc` | **Linux 7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) | skipped automatically once 7.3 ships |
+| Patch | Status |
+|-------|--------|
+| 0001 hid descriptor fix | ✅ mainline (7.1) |
+| 0002 stale-slots fix | 🟡 hid/for-next (2026-08-25, bentiss) → 7.3 final |
+| 0003 ghost contacts | ✅ **7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
+| 0004 cdc-acm quirks | ✅ mainline (7.1) |
+| 0005 cdc-acm bulk-IN | ✅ **7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
+| 0006 yb9-kbdock | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
+| 0007 lenovo-ymc | ✅ **7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
 
 ---
 
@@ -966,7 +966,7 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 | `kernel/upstream/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (**in Linux 7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e)) |
 | `kernel/sources/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
 | `kernel/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35, kernel 7.1) |
-| `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**merged** usb-next 2026-05-27) |
+| `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**in Linux 7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e)) |
 | `kernel/sources/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
 | `kernel/sources/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v15 **in Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d); local build adaptation with 4-param `wmidev_query_block`, manual length check in place of `.min_event_size`) |
 | `kernel/patches/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock driver (v15 upstream reference) |
