@@ -19,38 +19,6 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | `lenovo-ymc`: Suppress probe on Yoga Book 9 | ✅ **7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
 | `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
 
-Until all patches land in a released kernel, the out-of-tree build instructions
-below are required. The cdc-acm quirk patch is merged to mainline and will ship
-in kernel 7.1. The hid-multitouch misclassification fix (v2) merged to Linus
-mainline 2026-05-28. The ghost contacts fix (Honor ContactCount) was applied
-to hid/for-next 2026-06-10 (Jiri Kosina) and is **in Linux 7.3-rc1** ([ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e)). The stale-slots fix (v3) was applied
-to hid/for-next 2026-08-25 by Benjamin Tissoires (commit e8e60b6439ee), targeting 7.3 final. The keyboard dock driver
-(yb9-kbdock) and companion lenovo-ymc fix (v15, 2026-07-28) are **in Linux 7.3-rc1**
-([c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d), [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f)), applied to
-pdx86/for-next 2026-08-03 by Ilpo Järvinen, with Hans de Goede's
-Reviewed-by tag reinstated
-([lore.kernel.org](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/);
-applied notification Message-ID: `<369a1d84-f6a2-1075-b62e-c1852ae25894@linux.intel.com>`).
-v15 restored .min_event_size = sizeof(__le32) in yb9_kbdock_event_driver and
-removed the manual buffer-length check in yb9_kbdock_notify_new(), which was
-accidentally dropped in v14 (Ilpo Järvinen).
-v14 (2026-07-22): restores v10 structural changes (spinlock, pointer-out query,
-error propagation, compiler_attributes.h, spinlock.h) absent from v13.
-v13 (2026-07-22): resend of v12 with sendemail.transferEncoding=8bit to fix
-quoted-printable corruption of RST '=' characters. No content changes from v12.
-v12 adds #include <linux/sysfs.h> and #include <linux/types.h> per Ilpo Järvinen's
-v11 review. Patch 1/2 (lenovo-ymc) unchanged from v10.
-v11 submitted 2026-06-23; fixes ABI doc Date/KernelVersion per Armin Wolf; carries
-his Reviewed-by tag. v10 submitted 2026-06-21 (Armin Wolf's v10 review — ABI doc date/version correction).
-v10 addresses Armin Wolf's v9 review: pointer-out u32 *bkbd in yb9_kbdock_query()
-to avoid 0xFFFFFFFF misread as -EPERM; spinlock protecting input_report_switch +
-input_sync; yb9_kbdock_sync() propagates error; .min_event_size replaces manual
-length check; added compiler_attributes.h and types.h; updated ABI doc.
-v9 submitted 2026-06-16 (Armin Wolf's v8 NACK — notifier architecture).
-v8 submitted 2026-06-10 (Ilpo Järvinen's 9-item v7 review).
-v7 submitted 2026-06-09; v6 submitted 2026-06-08; v5 submitted 2026-05-27
-(Hans de Goede review prompted the lenovo-ymc companion patch).
-
 ---
 
 Three separate bugs were fixed:
