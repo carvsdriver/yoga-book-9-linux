@@ -12,10 +12,10 @@ Kernel patches have been submitted to the Linux kernel mailing lists:
 | Patch | Status |
 |-------|--------|
 | `cdc-acm`: VENDOR_CLASS_DATA_IFACE + ALWAYS_POLL_CTRL quirks for 17EF:6161 | ✅ mainline (7.1) — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
-| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set | ✅ **7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
-| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | ✅ mainline (7.1) — [lore](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
-| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | 🟡 hid/for-next (2026-08-25, bentiss) → 7.3 final — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
-| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | ✅ **7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
+| `cdc-acm`: start bulk-IN polling when ALWAYS_POLL_CTRL is set | ✅ **7.2** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
+| `hid-multitouch`: Fix Yoga Book 9 14IAH10 touchscreen misclassification | ✅ **7.2** — [f1bd44b9b62c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f1bd44b9b62c) · [lore](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/) |
+| `hid-multitouch`: Fix stale MT slots when contact count drops to zero | ✅ **7.3-rc2** — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
+| `hid-multitouch`: Honor ContactCount to suppress stale-slot ghost contacts | ✅ **7.2** — [ef257b8be977](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be977) |
 | `lenovo-ymc`: Suppress probe on Yoga Book 9 | ✅ **7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
 | `lenovo-yb9-kbdock`: Keyboard dock detection (SW_TABLET_MODE + sysfs) | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
 
@@ -295,7 +295,7 @@ Message-ID: <20260515141940.751397-1-carvsdriver@gmail.com>
 Depends on patch 0004 (f58752ebcb35) and Wentao Guan's pending BIT-collision fix.
 
 **Accepted** into Greg Kroah-Hartman's `usb-testing` branch 2026-05-22.
-Will move to `usb-next` after testing; expect in linux-next within 24 hours.
+Merged to `usb-next` 2026-05-27; **in Linux 7.2** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e).
 
 ---
 
@@ -500,7 +500,7 @@ consumed, discarding the stale entries per HID specification section 17.
 by this guard are released via `INPUT_MT_DROP_UNUSED` at frame sync.
 
 Submitted 2026-05-14 to linux-input@vger.kernel.org as a follow-up to v2;
-applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.3-rc1**.
+applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.2**.
 
 ### Result
 
@@ -539,14 +539,14 @@ v2 submitted 2026-04-13. Implements the descriptor fixup approach as requested:
 `mt_yogabook9_fixup()` called from `mt_report_fixup()` drops the HID_DG_TOUCHPAD
 collection, neutralizes Win8 blob / ContactMax / SurfaceSwitch / ButtonSwitch
 GET/SET_REPORT triggers, and retains Input Mode for ghost contact clearing.
-**Applied** to hid/for-next by Jiri Kosina 2026-05-12; **in Linux 7.3-rc1**.
+**Applied** to hid/for-next by Jiri Kosina 2026-05-12; **in Linux 7.2** — [f1bd44b9b62c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f1bd44b9b62c).
 
 Ghost contact patch (v1) submitted 2026-05-14 as a follow-up; depends on v2.
 
 Maintainers: Jiri Kosina <jikos@kernel.org>, Benjamin Tissoires <bentiss@kernel.org>
 v1: https://lore.kernel.org/linux-input/20260402182937.388847-1-carvsdriver@gmail.com/
 v2: https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/
-Ghost contact patch: submitted 2026-05-14; applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.3-rc1** ([ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e))
+Ghost contact patch: submitted 2026-05-14; applied to hid/for-next 2026-06-10 (Jiri Kosina); **in Linux 7.2** ([ef257b8be977](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be977))
 Message-ID: <CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com>
 lore: https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/
 

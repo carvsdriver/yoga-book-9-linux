@@ -7,7 +7,7 @@ discovered through testing.
 
 This guide will work with or without dual boot.
 
-> **Dual boot users:** You will need a physical keyboard and mouse until Bluetooth is configured in [Step 7](#markdown-header-bluetooth-dual-boot-sync).
+> **Dual boot users:** You will need a physical keyboard and mouse until Bluetooth is configured in [Step 7](#bluetooth-dual-boot-sync).
 
 This guide is based on personal testing. Open an issue if you run into problems not covered here; pull requests for improvements are welcome.
 
@@ -15,22 +15,23 @@ This guide is based on personal testing. Open an issue if you run into problems 
 
 ## Table of Contents
 
-1. [Hardware Overview](#markdown-header-hardware-overview)
-2. [Known Issues](#markdown-header-known-issues)
-3. [TODO](#markdown-header-todo)
-4. [Installing Fedora](#markdown-header-installing-fedora)
-5. [Upgrading the Kernel](#markdown-header-upgrading-the-kernel)
-6. [Installing rEFInd](#markdown-header-installing-refind)
-7. [Installing Packages](#markdown-header-installing-packages)
-8. [Bluetooth Dual Boot Sync](#markdown-header-bluetooth-dual-boot-sync) *(optional)*
-9. [Enabling the Touchscreen](#markdown-header-enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 2c (ghost contacts), Bug 3 (OSK freeze)
-10. [Keyboard Dock Detection](#markdown-header-keyboard-dock-detection)
-11. [Fixing Suspend & Wake](#markdown-header-fixing-suspend-wake)
-12. [Display Configuration](#markdown-header-display-configuration)
-13. [Screen Rotation](#markdown-header-screen-rotation)
-14. [Facial Recognition Login](#markdown-header-facial-recognition-login)
-15. [Cleanup](#markdown-header-cleanup)
-16. [File Reference](#markdown-header-file-reference)
+1. [Hardware Overview](#hardware-overview)
+2. [Known Issues](#known-issues)
+3. [TODO](#todo)
+4. [Installing Fedora](#installing-fedora)
+5. [Upgrading the Kernel](#upgrading-the-kernel)
+6. [Installing rEFInd](#installing-refind)
+7. [Installing Packages](#installing-packages)
+8. [Bluetooth Dual Boot Sync](#bluetooth-dual-boot-sync) *(optional)*
+9. [Enabling the Touchscreen](#enabling-the-touchscreen) — Bug 1 (USB reset), Bug 2 (clickpad), Bug 2b (stale MT slots), Bug 2c (ghost contacts), Bug 3 (OSK freeze)
+10. [Keyboard Dock Detection](#keyboard-dock-detection)
+11. [On-Screen Touchpad](#on-screen-touchpad)
+12. [Fixing Suspend & Wake](#fixing-suspend--wake)
+13. [Display Configuration](#display-configuration)
+14. [Screen Rotation](#screen-rotation)
+15. [Facial Recognition Login](#facial-recognition-login)
+16. [Cleanup](#cleanup)
+17. [File Reference](#file-reference)
 
 ---
 
@@ -50,7 +51,7 @@ This guide is based on personal testing. Open an issue if you run into problems 
 
 ## Known Issues
 
-[![Open Issues](https://img.shields.io/bitbucket/issues/carvsdriver/lenovoyoga9ibook.svg)](https://bitbucket.org/carvsdriver/lenovoyoga9ibook/issues)
+[![Open Issues](https://img.shields.io/github/issues/carvsdriver/yoga-book-9-linux.svg)](https://github.com/carvsdriver/yoga-book-9-linux/issues)
 
 ### Bluetooth power-off at KDE session start
 
@@ -178,6 +179,8 @@ uname -r
 The patch rebuild script (`kernel/rebuild-patches.sh`) automatically detects which patches are already present in the running kernel and skips them.
 
 > **Note:** The cdc-acm USB fix (patch 0004) merged in kernel 7.1. If `uname -r` shows 7.1 or later, that patch is already built in — the script will skip it automatically.
+>
+> **Linux 7.3 contains every patch in this guide.** On 7.3 or later no patches or out-of-tree modules are needed; Fedora's kernel config enables the dock driver (`CONFIG_LENOVO_YB9_KBDOCK=m`).
 
 ---
 
@@ -379,7 +382,7 @@ and **`kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch`
 > **Upstream (0004):** Merged 2026-04-19; ships in kernel 7.1.
 > Commit: [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023)
 >
-> **Upstream (0005):** Merged to usb-next 2026-05-27 (Greg KH); **in Linux 7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e).
+> **Upstream (0005):** Merged to usb-next 2026-05-27 (Greg KH); **in Linux 7.2** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e).
 
 > **Note:** A udev/Python fallback (`99-ingenic-touch-init.rules` +
 > `ingenic-touch-init.py`) is retained for reference only. Do not install it
@@ -394,7 +397,7 @@ collection and neutralizes problematic SET/GET_REPORT triggers.
 
 Patch: **`kernel/patches/0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch`**
 
-> **Upstream:** Applied to hid/for-next 2026-05-12 by Jiri Kosina; **in Linux 7.3-rc1**.
+> **Upstream:** Applied to hid/for-next 2026-05-12 by Jiri Kosina; **in Linux 7.2** — [f1bd44b9b62c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f1bd44b9b62c).
 > v2: [lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260413125803.46792-1-carvsdriver@gmail.com/)
 
 ### Bug 2b: Stale MT Slots on All-Fingers-Up
@@ -405,7 +408,7 @@ slots active with stale tracking IDs until the next touch. Fixed in
 
 Patch: **`kernel/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch`**
 
-> **Upstream:** v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review); v3 submitted 2026-07-30 (standalone patch per bentiss request); **applied to hid/for-next 2026-08-25 by Benjamin Tissoires** — commit [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/hid/hid.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725).
+> **Upstream:** v1 submitted 2026-05-15; v2 submitted 2026-05-22 (restructured per bentiss review); v3 submitted 2026-07-30 (standalone patch per bentiss request); applied to hid/for-next 2026-08-25 by Benjamin Tissoires; **in Linux 7.3-rc2** — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725).
 > v3: [lore.kernel.org/linux-input/20260730124336.637339-1-carvsdriver@gmail.com/](https://lore.kernel.org/linux-input/20260730124336.637339-1-carvsdriver@gmail.com/)
 
 ### Bug 2c: Ghost Contacts from Stale Firmware Slots
@@ -416,7 +419,7 @@ ghost contacts on repeated multi-finger gestures. Fixed by adding
 
 Patch: **`kernel/patches/0003-HID-multitouch-Suppress-cycling-ghost-contacts-for-Yoga-Book-9.patch`**
 
-> **Upstream:** Applied to hid/for-next 2026-06-10 by Jiri Kosina; **in Linux 7.3-rc1** — commit [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e).
+> **Upstream:** Applied to hid/for-next 2026-06-10 by Jiri Kosina; **in Linux 7.2** — commit [ef257b8be977](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be977).
 > v1: [lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/](https://lore.kernel.org/linux-input/CALPvRORBFHpbos=_xpBVchK-oSZF9EnY6n5-sAQGr=qiL13FbQ@mail.gmail.com/)
 
 ### Bug 3: Emulated Touchpad Causes On-Screen Keyboard Freezes
@@ -503,12 +506,12 @@ will be correct and the script will become a no-op.
 
 | Patch | Status |
 |-------|--------|
-| 0001 hid descriptor fix | ✅ mainline (7.1) |
-| 0002 stale-slots fix | 🟡 hid/for-next (2026-08-25, bentiss) → 7.3 final |
-| 0003 ghost contacts | ✅ **7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e) |
-| 0004 cdc-acm quirks | ✅ mainline (7.1) |
-| 0005 cdc-acm bulk-IN | ✅ **7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
-| 0006 yb9-kbdock | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
+| 0001 hid descriptor fix | ✅ **7.2** — [f1bd44b9b62c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f1bd44b9b62c) |
+| 0002 stale-slots fix | ✅ **7.3-rc2** — [e8e60b6439ee](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e8e60b6439eed340a611e9d7a5b9bcbd0ef62725) |
+| 0003 ghost contacts | ✅ **7.2** — [ef257b8be977](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be977) |
+| 0004 cdc-acm quirks | ✅ **7.1** — [f58752ebcb35](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f58752ebcb35e156c85cd1a82d6579c7af3b9023) |
+| 0005 cdc-acm bulk-IN | ✅ **7.2** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e) |
+| 0006 lenovo-yb9-kbdock | ✅ **7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d) |
 | 0007 lenovo-ymc | ✅ **7.3-rc1** — [bdd0f4e3333f](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bdd0f4e3333f) |
 
 ---
@@ -532,7 +535,8 @@ A kernel driver (`lenovo-yb9-kbdock`) handles this:
 - Reports `SW_TABLET_MODE=0` (laptop) when keyboard is docked in either
   position, `SW_TABLET_MODE=1` (tablet) when detached
 - Exposes raw BKBD value at
-  `/sys/bus/wmi/devices/806BD2A2-177B-481D-BFB5-3BA0BB4A2285-11/keyboard_position`
+  `/sys/bus/wmi/devices/E7F300FA-21CD-4003-ADAC-2696135982E6-*/keyboard_position`
+  (the numeric suffix after the GUID can vary)
 
 ### Build and Install
 
@@ -578,7 +582,7 @@ No `modules-load.d` entry is needed.
 
 ```bash
 # Current keyboard position
-cat /sys/bus/wmi/devices/806BD2A2-177B-481D-BFB5-3BA0BB4A2285-11/keyboard_position
+cat /sys/bus/wmi/devices/E7F300FA-21CD-4003-ADAC-2696135982E6-*/keyboard_position
 
 # Watch SW_TABLET_MODE events (find event node first)
 grep -r "Yoga Book 9 keyboard" /sys/class/input/*/name
@@ -587,6 +591,43 @@ sudo evtest /dev/input/eventN
 
 > **Upstream:** v15 applied to pdx86/for-next 2026-08-03 (Ilpo Järvinen; Hans de Goede's Reviewed-by reinstated); **in Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d).
 > Cover: [lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/](https://lore.kernel.org/all/20260728225545.1333610-1-carvsdriver@gmail.com/)
+
+---
+
+## On-Screen Touchpad
+
+With the keyboard docked, the uncovered strip of the bottom screen can act as a
+touchpad. [plasma-touchpad](https://github.com/carvsdriver/kde-plasma-touchpad)
+is a KDE Plasma daemon and System Settings module that turns raw touches on that
+strip into pointer movement, clicks, scrolling and gestures. It activates
+automatically when the keyboard is docked and moves windows and panels to the
+top screen while active.
+
+It depends on the touchscreen fixes and the `lenovo-yb9-kbdock` driver above,
+all of which are built into Linux 7.3 and later.
+
+### Install
+
+```bash
+sudo dnf copr enable carvsdriver/yoga-book-9
+sudo dnf install plasma-touchpad
+```
+
+Log out and back in. The daemon runs as a systemd user service
+(`plasma-touchpad.service`), and the package enables it for all users.
+
+### Configure
+
+Open **System Settings → On-Screen Touchpad** to set pointer and scroll speed,
+the button strip layout (0–3 buttons), tap-to-click and gestures. Settings are
+stored in `~/.config/plasma-touchpadrc`.
+
+### Verify
+
+```bash
+systemctl --user status plasma-touchpad.service
+journalctl --user -u plasma-touchpad.service -f   # then dock the keyboard
+```
 
 ---
 
@@ -722,7 +763,7 @@ No patched `iio-sensor-proxy` binary is required.
 
 ### Install
 
-First install the udev rules (see [Accelerometer / Sensor Mount Matrix](#markdown-header-accelerometer-sensor-mount-matrix) above), then:
+First install the udev rules (see [Accelerometer / Sensor Mount Matrix](#accelerometer--sensor-mount-matrix) above), then:
 
 ```bash
 # Polkit rule — lets the system service claim the accelerometer
@@ -961,12 +1002,12 @@ kept so you can reinstall `python3-dlib` without a full rebuild if needed.
 
 | File | Purpose |
 |------|---------|
-| `kernel/upstream/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (**merged** hid/for-next 2026-05-12) |
+| `kernel/upstream/v2-0001-HID-multitouch-Fix-Yoga-Book-9-14IAH10-touchscreen-m.patch` | Fix `INPUT_PROP_BUTTONPAD` misclassification for INGENIC touchscreen (**in Linux 7.2** — [f1bd44b9b62c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f1bd44b9b62c)) |
 | `kernel/patches/0002-HID-multitouch-Fix-stale-MT-slots-when-contact-count-drops-to-zero.patch` | hid-multitouch: release stale MT slots when firmware sends `CONTACTCOUNT=0` on all-fingers-up |
-| `kernel/upstream/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (**in Linux 7.3-rc1** — [ef257b8be97e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be97e)) |
+| `kernel/upstream/v1-0001-HID-multitouch-Honor-ContactCount-for-Yoga-Book-9-to-suppress-ghost-contacts.patch` | hid-multitouch: `MT_QUIRK_CONTACT_CNT_ACCURATE` to suppress stale-slot ghost contacts (**in Linux 7.2** — [ef257b8be977](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ef257b8be977)) |
 | `kernel/sources/hid-multitouch.c` | Patched hid-multitouch source for reference / rebuild |
 | `kernel/patches/0004-USB-CDC-ACM-add-INGENIC-17EF-6161-quirk-for-Yoga-Book-9.patch` | cdc-acm: bind INGENIC USB interface, keep notification endpoint polled (**merged** as f58752ebcb35, kernel 7.1) |
-| `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**in Linux 7.3-rc1** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e)) |
+| `kernel/patches/0005-USB-cdc-acm-ALWAYS_POLL_CTRL-also-poll-bulk-IN.patch` | cdc-acm: keep bulk-IN endpoint drained to suppress ~55 s firmware watchdog (**in Linux 7.2** — [e5ab27ddd74e](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e5ab27ddd74e)) |
 | `kernel/sources/cdc-acm.c` | Patched cdc-acm source (0004 + 0005 applied) for reference / rebuild |
 | `kernel/sources/lenovo-yb9-kbdock.c` | WMI driver source: keyboard dock detection via BKBD EC field; reports `SW_TABLET_MODE` (v15 **in Linux 7.3-rc1** — [c9b5c8ff065d](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c9b5c8ff065d); local build adaptation with 4-param `wmidev_query_block`, manual length check in place of `.min_event_size`) |
 | `kernel/patches/0006-platform-x86-lenovo-add-Yoga-Book-9-keyboard-dock-driver.patch` | platform/x86/lenovo: yb9-kbdock driver (v15 upstream reference) |
