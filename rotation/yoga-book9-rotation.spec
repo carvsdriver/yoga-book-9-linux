@@ -3,7 +3,7 @@ Version:        1.0
 Release:        1%{?dist}
 Summary:        Dual-screen auto-rotation daemon for Lenovo Yoga Book 9 14IAH10
 License:        GPL-2.0-or-later
-URL:            https://github.com/davecarey/yoga-book9-rotation
+URL:            https://github.com/carvsdriver/yoga-book9-rotation
 
 # Build tarball with: scripts/make-srpm.sh (or see COPR setup notes)
 Source0:        %{name}-%{version}.tar.gz
