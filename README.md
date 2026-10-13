@@ -232,10 +232,12 @@ The on-screen touchpad daemon turns the exposed strip of the bottom screen into 
 
 ```bash
 sudo dnf copr enable carvsdriver/yoga-book-9
-sudo dnf install plasma-touchpad
+sudo dnf install plasma-touchpad yoga-book9-rotation
 ```
 
-Log out and back in. Configure in **System Settings → On-Screen Touchpad**.
+Log out and back in. Configure the touchpad in **System Settings → On-Screen Touchpad**.
+
+> Both packages are in the same COPR — the single `copr enable` covers both.
 
 ---
 
@@ -292,28 +294,18 @@ EnableHiDPI=true
 
 ## Screen Rotation
 
-Both screens rotate together automatically. The `yoga9-rotate.py` daemon drives this via `iio-sensor-proxy` and `kscreen-doctor`.
-
-Install the accelerometer mount matrix fix first:
+Both screens rotate together automatically. The `yoga9-rotate` daemon subscribes to `iio-sensor-proxy` and drives `kscreen-doctor` for synchronized dual-screen rotation and tent mode detection.
 
 ```bash
-sudo cp 61-sensor-yogabook9.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger --action=add --subsystem-match=iio
-sudo systemctl restart iio-sensor-proxy
+sudo dnf copr enable carvsdriver/yoga-book-9
+sudo dnf install yoga-book9-rotation
 ```
 
-Install the rotation daemon:
-
-```bash
-sudo cp 51-sensor-proxy-yoga9.rules /etc/polkit-1/rules.d/
-sudo cp yoga9-rotate.py /usr/local/bin/yoga9-rotate.py
-sudo chmod 755 /usr/local/bin/yoga9-rotate.py
-sudo cp screen-rotate.service /etc/systemd/system/screen-rotate.service
-sudo systemctl daemon-reload && sudo systemctl enable --now screen-rotate.service
-```
+The package installs and auto-enables a systemd user service (`yoga9-rotate.service`) and the udev accelerometer mount matrix fix. Log out and back in for the service to start.
 
 In **System Settings → Display & Monitor**, disable **Auto-rotate** for both screens.
+
+> Source: [github.com/carvsdriver/yoga-book9-rotation](https://github.com/carvsdriver/yoga-book9-rotation)
 
 ---
 

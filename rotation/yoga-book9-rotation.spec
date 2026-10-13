@@ -4,9 +4,7 @@ Release:        1%{?dist}
 Summary:        Dual-screen auto-rotation daemon for Lenovo Yoga Book 9 14IAH10
 License:        GPL-2.0-or-later
 URL:            https://github.com/carvsdriver/yoga-book9-rotation
-
-# Build tarball with: scripts/make-srpm.sh (or see COPR setup notes)
-Source0:        %{name}-%{version}.tar.gz
+Source0:        %{url}/archive/refs/tags/v%{version}/%{name}-%{version}.tar.gz
 
 BuildArch:      noarch
 
@@ -36,7 +34,7 @@ If upgrading from the screen-rotate system service, first run:
   sudo systemctl disable --now screen-rotate.service
 
 %prep
-%autosetup
+%autosetup -n %{name}-%{version}
 
 %build
 # nothing to build
@@ -66,6 +64,7 @@ systemctl restart iio-sensor-proxy.service || :
 %systemd_user_postun_with_restart yoga9-rotate.service
 
 %files
+%license LICENSE
 %{_libexecdir}/yoga9-rotate
 %{_userunitdir}/yoga9-rotate.service
 %{_prefix}/lib/systemd/user-preset/50-yoga9-rotate.preset
