@@ -141,9 +141,13 @@ EOF
 # 6. Apply patches
 # --------------------------------------------------------------------------
 echo "==> Applying hid-multitouch patch (0001)..."
-# git format-patch: a/drivers/hid/hid-multitouch.c → strip 3 components
+# Upstreamed in kernel 7.2+; skip if the source already has MT_CLS_YOGABOOK9I.
 pushd "${BUILD_DIR}" >/dev/null
-patch -p3 < "${HID_PATCH}"
+if grep -q "MT_CLS_YOGABOOK9I" hid-multitouch.c; then
+    echo "    Already present in upstream source — skipping 0001."
+else
+    patch -p3 < "${HID_PATCH}"
+fi
 popd >/dev/null
 
 echo "==> Applying hid-multitouch patch (0002)..."
@@ -152,8 +156,14 @@ patch -p3 < "${HID_PATCH2}"
 popd >/dev/null
 
 echo "==> Applying hid-multitouch patch (0003)..."
+# Upstreamed in kernel 7.2+; skip if the YOGABOOK9I class entry already has
+# MT_QUIRK_CONTACT_CNT_ACCURATE (the key addition of this patch).
 pushd "${BUILD_DIR}" >/dev/null
-patch -p3 < "${HID_PATCH3}"
+if grep -A 10 "MT_CLS_YOGABOOK9I" hid-multitouch.c | grep -q "MT_QUIRK_CONTACT_CNT_ACCURATE"; then
+    echo "    Already present in upstream source — skipping 0003."
+else
+    patch -p3 < "${HID_PATCH3}"
+fi
 popd >/dev/null
 
 echo "==> Applying cdc-acm patch (0004)..."
@@ -167,9 +177,14 @@ fi
 popd >/dev/null
 
 echo "==> Applying cdc-acm patch (0005)..."
-# git format-patch: a/drivers/usb/class/cdc-acm.c → strip 4 components
+# Upstreamed in kernel 7.2+; skip if the resume path already has the
+# tty_port_initialized || ALWAYS_POLL_CTRL bulk-IN start condition.
 pushd "${BUILD_DIR}" >/dev/null
-patch -p4 < "${CDC_PATCH3}"
+if grep -q "tty_port_initialized.*ALWAYS_POLL_CTRL" cdc-acm.c; then
+    echo "    Already present in upstream source — skipping 0005."
+else
+    patch -p4 < "${CDC_PATCH3}"
+fi
 popd >/dev/null
 
 echo "==> Applying lenovo-ymc patch (0007)..."
