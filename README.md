@@ -1,5 +1,5 @@
 # Lenovo Yoga Book 9 14IAH10 — Linux Setup Guide
-> Fedora 43 · KDE Plasma 6 · Wayland · Dual boot with Windows
+> Fedora 44 · KDE Plasma 6 · Wayland · Dual boot with Windows
 
 Setup guide for the Lenovo Yoga Book 9 14IAH10 (83KJ). Works with or without dual boot.
 
@@ -65,7 +65,7 @@ Open an issue if you run into something not covered here; pull requests welcome.
 Download [Fedora KDE Spin](https://fedoraproject.org/spins/kde/). Write to USB:
 
 ```bash
-sudo dd if=Fedora-KDE-Live-x86_64-43.iso of=/dev/sdX bs=4M status=progress
+sudo dd if=Fedora-KDE-Live-x86_64-44.iso of=/dev/sdX bs=4M status=progress
 ```
 
 Or use [Fedora Media Writer](https://flathub.org/apps/org.fedoraproject.MediaWriter) on Windows.
@@ -116,7 +116,7 @@ Upgrade the kernel before doing anything else. Most hardware patches have merged
 sudo dnf upgrade kernel && reboot
 ```
 
-> **Linux 7.3+ contains every patch in this guide.** On 7.3 or later, no out-of-tree modules are needed.
+> **Linux 7.3+ contains every patch in this guide** — no out-of-tree modules needed. On 7.2.x (current Fedora 44 stable), the touchscreen descriptor, ghost-contacts, and CDC-ACM quirk patches are already built in; only the stale-slots fix, keyboard dock driver, and lenovo-ymc fix still need out-of-tree modules. `rebuild-patches.sh` handles all of this automatically.
 
 ---
 
